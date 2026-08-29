@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.ParkQR" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorAccent">@color/accent</item>
+    </style>
+</resources>

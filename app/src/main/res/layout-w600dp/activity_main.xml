@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  宽屏车机布局（1920x720 这类）。竖着堆的话二维码只能拿到 ~400px 高，
+  左右两大片全浪费；左右分栏能把码放到接近整个屏高。
+  View id 与竖屏版完全一致，MainActivity 不需要区分。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@color/bg"
+    android:padding="14dp">
+
+    <FrameLayout
+        android:id="@+id/qrHolder"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1">
+
+        <FrameLayout
+            android:id="@+id/qrCard"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_qr"
+            android:padding="10dp">
+
+            <ImageView
+                android:id="@+id/qrImage"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
+                android:contentDescription="缴费二维码" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/emptyHint"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textColor="@color/text_dim"
+            android:textSize="16sp"
+            android:lineSpacingMultiplier="1.4"
+            android:visibility="gone"
+            android:text="还没有任何停车码\n\n点「管理」→「手机传码」\n用手机拍一张物料码传过来" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_marginStart="18dp"
+        android:orientation="vertical"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/lotName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text"
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text="—" />
+
+        <TextView
+            android:id="@+id/lotMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/text_dim"
+            android:textSize="15sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text="" />
+
+        <LinearLayout
+            android:id="@+id/plateRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/bg_card"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_dim"
+                android:textSize="14sp"
+                android:text="车牌  " />
+
+            <TextView
+                android:id="@+id/plate"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/text"
+                android:textSize="30sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.12"
+                android:maxLines="1"
+                android:text="—" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/accent"
+                android:textSize="14sp"
+                android:text="切换 / 复制" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnSwitch"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="56dp"
+                android:textSize="16sp"
+                android:text="切换停车场" />
+
+            <Space android:layout_width="12dp" android:layout_height="1dp" />
+
+            <Button
+                android:id="@+id/btnManage"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="56dp"
+                android:textSize="16sp"
+                android:text="管理" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

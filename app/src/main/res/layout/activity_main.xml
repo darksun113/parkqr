@@ -95,6 +95,13 @@
     </FrameLayout>
 
     <LinearLayout
+        android:id="@+id/candRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal" />
+
+    <LinearLayout
         android:id="@+id/plateRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

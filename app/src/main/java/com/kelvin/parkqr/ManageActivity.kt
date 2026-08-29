@@ -35,6 +35,29 @@ class ManageActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnNew).setOnClickListener { editLot(store.newLot(""), isNew = true) }
         findViewById<Button>(R.id.btnServer).setOnClickListener { showServer() }
+
+        val sp = getSharedPreferences("settings", MODE_PRIVATE)
+        val btnBoot = findViewById<Button>(R.id.btnBootOverlay)
+        fun renderBoot() {
+            btnBoot.text = if (sp.getBoolean("bootOverlay", true)) "开机悬浮：开" else "开机悬浮：关"
+        }
+        renderBoot()
+        btnBoot.setOnClickListener {
+            val now = !sp.getBoolean("bootOverlay", true)
+            sp.edit().putBoolean("bootOverlay", now).apply()
+            renderBoot()
+            if (now && !android.provider.Settings.canDrawOverlays(this)) requestOverlayPermission()
+        }
+        findViewById<Button>(R.id.btnTestOverlay).setOnClickListener {
+            if (!android.provider.Settings.canDrawOverlays(this)) {
+                requestOverlayPermission()
+            } else {
+                OverlayService.start(this)
+            }
+        }
+        findViewById<Button>(R.id.btnUpdate).setOnClickListener {
+            UpdateChecker.check(this, manual = true)
+        }
         reload()
     }
 
@@ -224,6 +247,16 @@ class ManageActivity : AppCompatActivity() {
     private fun stopServer() {
         server?.stop()
         server = null
+    }
+
+    private fun requestOverlayPermission() {
+        toast("需要「显示在其他应用上层」权限，请在设置里允许后回来")
+        startActivity(
+            android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:$packageName")
+            )
+        )
     }
 
     // ---------- 列表 ----------

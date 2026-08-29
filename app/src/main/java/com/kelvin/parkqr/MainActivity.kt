@@ -67,6 +67,8 @@ class MainActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.attributes = window.attributes.apply { screenBrightness = 1f }
 
+        UpdateChecker.check(this, manual = false)
+
         if (!Geo.hasPermission(this)) {
             ActivityCompat.requestPermissions(
                 this,
@@ -97,18 +99,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        val loc = Geo.lastKnown(this)
-        ranked = store.all()
-            .map { lot ->
-                val d = if (loc != null && lot.hasLocation) {
-                    Geo.distance(loc.latitude, loc.longitude, lot.lat!!, lot.lng!!)
-                } else null
-                lot to d
-            }
-            .sortedWith(compareBy({ it.second == null }, { it.second ?: 0.0 }))
-
+        ranked = Candidates.ranked(this, store)
         // 优先选"最近且已经有码"的；一个有码的都没有就退回第一个。
-        val pick = ranked.firstOrNull { it.first.hasCode } ?: ranked.firstOrNull()
+        // 若之前手动选过且还在列表里，尊重手动选择。
+        val keep = current?.let { c -> ranked.firstOrNull { it.first.id == c.id } }
+        val pick = keep ?: ranked.firstOrNull { it.first.hasCode } ?: ranked.firstOrNull()
         current = pick?.first
         render()
     }
@@ -147,6 +142,65 @@ class MainActivity : AppCompatActivity() {
         qrCard.visibility = View.VISIBLE
         // 等布局完成拿到实际尺寸，再按尺寸生成 —— 直接拉伸小图会糊，糊了就扫不出。
         qrHolder.post { drawCode(lot) }
+        renderCandidates()
+    }
+
+    /**
+     * 候选条：GPS 精度不一定可靠，把最近 3 个候选（缩略码 + 名字 + 距离）都摆出来让人选，
+     * 点谁主区就显示谁的大码。
+     */
+    private fun renderCandidates() {
+        val row = findViewById<LinearLayout>(R.id.candRow)
+        row.removeAllViews()
+        val top = ranked.filter { it.first.hasCode }.take(3)
+        // 只有一个候选没什么可选的，藏起来省屏幕
+        if (top.size < 2) {
+            row.visibility = View.GONE
+            return
+        }
+        row.visibility = View.VISIBLE
+        for ((lot, dist) in top) {
+            val selected = lot.id == current?.id
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                background = getDrawable(
+                    if (selected) R.drawable.bg_card_selected else R.drawable.bg_card
+                )
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginEnd = dp(8) }
+                setOnClickListener {
+                    current = lot
+                    render()
+                }
+            }
+            val thumb = ImageView(this).apply {
+                background = getDrawable(R.drawable.bg_qr)
+                val pad = dp(4)
+                setPadding(pad, pad, pad, pad)
+                val bmp = lot.payload?.let { runCatching { QrUtil.encode(it, dp(96)) }.getOrNull() }
+                    ?: lot.imageFile?.let { store.readImage(it) }
+                setImageBitmap(bmp)
+                layoutParams = LinearLayout.LayoutParams(dp(96), dp(96))
+            }
+            val label = TextView(this).apply {
+                text = lot.name
+                setTextColor(getColor(R.color.text))
+                textSize = 13f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                gravity = android.view.Gravity.CENTER
+            }
+            val sub = TextView(this).apply {
+                text = dist?.let { Geo.format(it) } ?: "无坐标"
+                setTextColor(getColor(R.color.text_dim))
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+            }
+            cell.addView(thumb); cell.addView(label); cell.addView(sub)
+            row.addView(cell)
+        }
     }
 
     private fun drawCode(lot: Lot) {

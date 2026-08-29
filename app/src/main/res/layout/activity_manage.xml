@@ -37,6 +37,38 @@
             android:text="手机传码" />
     </LinearLayout>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnBootOverlay"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="开机悬浮：开" />
+
+        <Space android:layout_width="10dp" android:layout_height="1dp" />
+
+        <Button
+            android:id="@+id/btnTestOverlay"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="测试悬浮窗" />
+
+        <Space android:layout_width="10dp" android:layout_height="1dp" />
+
+        <Button
+            android:id="@+id/btnUpdate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="检查更新" />
+    </LinearLayout>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/list"
         android:layout_width="match_parent"

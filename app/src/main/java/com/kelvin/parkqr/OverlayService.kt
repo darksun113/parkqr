@@ -145,8 +145,10 @@ class OverlayService : Service() {
     private fun showExpanded(lot: Lot, dist: Double?, candidates: List<Pair<Lot, Double?>>) {
         removeView()
         val store = LotStore.get(this)
-        val screenH = resources.displayMetrics.heightPixels
-        val side = (screenH * 0.62f).toInt().coerceAtLeast(dp(240))
+        // 按宽高较小值算：竖屏下用屏高算会超出屏宽，码被裁掉就扫不出了
+        val dm = resources.displayMetrics
+        val side = (minOf(dm.widthPixels, dm.heightPixels) * 0.62f).toInt()
+            .coerceAtLeast(dp(240))
 
         val qr = ImageView(this).apply {
             background = whiteBg()

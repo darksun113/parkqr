@@ -20,6 +20,8 @@ class BootReceiver : BroadcastReceiver() {
             .getBoolean("bootOverlay", true)
         if (!enabled) return
         if (!Settings.canDrawOverlays(context)) return
+        // 在家附近不弹：自家车位不需要缴费码（手动"测试悬浮窗"不走这里，不受限）
+        if (Home.isNear(context)) return
 
         OverlayService.start(context)
     }

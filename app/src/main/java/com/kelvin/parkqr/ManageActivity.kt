@@ -58,6 +58,47 @@ class ManageActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnUpdate).setOnClickListener {
             UpdateChecker.check(this, manual = true)
         }
+
+        val btnHome = findViewById<Button>(R.id.btnHome)
+        fun renderHome() {
+            btnHome.text = if (Home.get(this) != null) {
+                "家：已设定（附近 ${Home.RADIUS_M.toInt()} 米开机不弹码）"
+            } else {
+                "家：未设定"
+            }
+        }
+        renderHome()
+        btnHome.setOnClickListener {
+            val h = Home.get(this)
+            val msg = if (h != null) {
+                "已设定：%.6f, %.6f\n在家 ${Home.RADIUS_M.toInt()} 米内，开机不弹悬浮码。".format(h.first, h.second)
+            } else {
+                "还没设定。停在家的车位上点「把这里设为家」。"
+            }
+            val b = AlertDialog.Builder(this)
+                .setTitle("家")
+                .setMessage(msg)
+                .setPositiveButton("把这里设为家") { _, _ ->
+                    Geo.requestFix(this, timeoutMs = 10_000) { loc ->
+                        if (loc == null) {
+                            toast("拿不到定位，稍后再试")
+                        } else {
+                            Home.set(this, loc.latitude, loc.longitude)
+                            renderHome()
+                            toast("已把当前位置设为家（精度约 ${loc.accuracy.toInt()} m）")
+                        }
+                    }
+                }
+                .setNegativeButton("取消", null)
+            if (h != null) {
+                b.setNeutralButton("清除") { _, _ ->
+                    Home.clear(this)
+                    renderHome()
+                    toast("已清除")
+                }
+            }
+            b.show()
+        }
         reload()
     }
 

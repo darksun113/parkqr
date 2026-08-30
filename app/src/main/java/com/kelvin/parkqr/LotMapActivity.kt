@@ -16,7 +16,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.concurrent.thread
 
 /**
  * 停车场地图总览：所有场以 pin 显示（蓝=有码，橙=缺码），点 pin 后底栏出现「编辑」。
@@ -128,18 +127,9 @@ class LotMapActivity : AppCompatActivity() {
     }
 
     private fun geocode(q: String) {
-        if (q.isBlank()) return
-        thread {
-            val r = Nominatim.search(q)
-            runOnUiThread {
-                if (isFinishing) return@runOnUiThread
-                if (r == null) {
-                    toast("没搜到「$q」（要联网；试试更完整的地名）")
-                } else {
-                    web.evaluateJavascript("jumpTo(${r.lat},${r.lng},15);", null)
-                    toast(r.name.take(60))
-                }
-            }
+        PlaceSearch.run(this, q) { p ->
+            web.evaluateJavascript("jumpTo(${p.lat},${p.lng},15);", null)
+            toast(Nominatim.label(p))
         }
     }
 

@@ -86,6 +86,32 @@ object LotEditDialog {
         }
         renderCode()
 
+        // 编辑框里直接跳手机传码，并预选本场——省得在手机浏览器里再搜一遍
+        view.findViewById<Button>(R.id.btnCodePhone).setOnClickListener {
+            if (lot.name.isBlank() && inName.text.toString().isBlank()) {
+                toast(act, "先填个名称")
+                return@setOnClickListener
+            }
+            // 新建的场还没入库，先存一次才能被上传页选中
+            if (store.byId(lot.id) == null) {
+                lot.name = inName.text.toString().trim().ifBlank { lot.name }
+                lot.note = inNote.text.toString().trim()
+                lot.lat = lat
+                lot.lng = lng
+                store.save(lot)
+                onChanged()
+            }
+            TransferDialog.show(act, store, lot.id) {
+                onChanged()
+                // 传完码回来刷新显示
+                store.byId(lot.id)?.let { fresh ->
+                    payload = fresh.payload
+                    imageFile = fresh.imageFile
+                    act.runOnUiThread { renderCode() }
+                }
+            }
+        }
+
         btnCode.setOnClickListener {
             val input = EditText(act).apply {
                 hint = "微信扫物料码后复制的链接，粘/输到这里"

@@ -67,6 +67,15 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="检查更新" />
+
+        <Space android:layout_width="10dp" android:layout_height="1dp" />
+
+        <Button
+            android:id="@+id/btnBootDiag"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="自启诊断" />
     </LinearLayout>
 
     <LinearLayout

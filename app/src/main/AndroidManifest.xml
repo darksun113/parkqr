@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 车机常见：无 GMS、可能无 GPS 硬件时也要能装 -->
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
@@ -63,9 +65,14 @@
 
         <receiver
             android:name=".BootReceiver"
-            android:exported="true">
-            <intent-filter>
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.REBOOT" />
                 <action android:name="com.kelvin.parkqr.TEST_BOOT" />
             </intent-filter>
         </receiver>

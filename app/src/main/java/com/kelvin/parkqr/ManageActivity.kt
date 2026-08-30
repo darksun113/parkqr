@@ -30,7 +30,6 @@ class ManageActivity : CoordActivity() {
     private lateinit var list: RecyclerView
     private lateinit var emptyHint: TextView
     private val adapter = Adapter()
-    private var server: UploadServer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +56,7 @@ class ManageActivity : CoordActivity() {
             renderBoot()
             if (now && !android.provider.Settings.canDrawOverlays(this)) requestOverlayPermission()
         }
+        findViewById<Button>(R.id.btnBootDiag).setOnClickListener { showBootDiagnostics() }
         findViewById<Button>(R.id.btnTestOverlay).setOnClickListener {
             if (!android.provider.Settings.canDrawOverlays(this)) {
                 requestOverlayPermission()
@@ -196,7 +196,7 @@ class ManageActivity : CoordActivity() {
     }
 
     override fun onDestroy() {
-        stopServer()
+        TransferDialog.stop()
         super.onDestroy()
     }
 
@@ -230,67 +230,57 @@ class ManageActivity : CoordActivity() {
     // ---------- 手机传码 ----------
 
     private fun showServer(preselect: String? = null) {
-        val ip = UploadServer.localAddress(this)
-        if (ip == null) {
-            toast("车机没连上网络。连一下 WiFi，或者开车机热点让手机连上来。")
-            return
-        }
-        // 带时间戳：微信对同 URL 整页缓存极其激进，每次开对话框生成"新" URL 绕开它
-        val url = "http://$ip:${UploadServer.PORT}/?s=${System.currentTimeMillis() / 1000}"
-
-        server?.preselectId = preselect
-        if (server == null) {
-            server = UploadServer(this, store) { runOnUiThread { reload() } }
-            server!!.preselectId = preselect
-            runCatching { server!!.start(NANO_TIMEOUT, true) }
-                .onFailure {
-                    server = null
-                    toast("服务起不来：${it.message}")
-                    return
-                }
-        }
-
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
-            gravity = android.view.Gravity.CENTER_HORIZONTAL
-        }
-        box.addView(TextView(this).apply {
-            text = "① 手机连车机热点（或同一 WiFi）\n② 用微信「扫一扫」扫下面的入口码，打开上传页\n③ 粘贴物料码链接，或直接传照片"
-            textSize = 15f
-        })
-        box.addView(ImageView(this).apply {
-            setImageBitmap(QrUtil.encode(url, 600))
-            // 入口码尽量大，方便在驾驶位扫
-            val s = (resources.displayMetrics.heightPixels * 0.42f).toInt().coerceIn(360, 720)
-            layoutParams = LinearLayout.LayoutParams(s, s).apply { topMargin = pad }
-        })
-        box.addView(TextView(this).apply {
-            text = url
-            textSize = 18f
-            setTypeface(android.graphics.Typeface.MONOSPACE)
-            setPadding(0, pad, 0, 0)
-        })
-        box.addView(TextView(this).apply {
-            text = "注意：这个码只是打开上传页的入口，不是缴费码"
-            textSize = 13f
-            setTextColor(0xFF8A8F98.toInt())
-            setPadding(0, pad / 2, 0, 0)
-        })
-
-        val scroll = android.widget.ScrollView(this).apply { addView(box) }
-        AlertDialog.Builder(this)
-            .setTitle("手机传码")
-            .setView(scroll)
-            .setPositiveButton("完成") { _, _ -> stopServer() }
-            .setOnDismissListener { stopServer() }
-            .show()
+        TransferDialog.show(this, store, preselect) { reload() }
     }
 
-    private fun stopServer() {
-        server?.stop()
-        server = null
+    /** 开机没弹悬浮窗时，把每个环节的状态摊开给用户看——ROM 自启白名单我改不了，但能说清楚。 */
+    private fun showBootDiagnostics() {
+        val sp = getSharedPreferences("settings", MODE_PRIVATE)
+        val last = sp.getLong("lastBootBroadcast", 0L)
+        val fmt = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+        val pm = getSystemService(android.os.PowerManager::class.java)
+        val ignoringBattery = pm?.isIgnoringBatteryOptimizations(packageName) ?: false
+        val codedLots = store.all().count { it.hasCode }
+
+        val msg = buildString {
+            appendLine("开机悬浮开关：" + if (sp.getBoolean("bootOverlay", true)) "开" else "关 ✗")
+            appendLine("悬浮窗权限：" + if (android.provider.Settings.canDrawOverlays(this@ManageActivity)) "已授权" else "未授权 ✗")
+            appendLine("带码的停车场：$codedLots 个" + if (codedLots == 0) " ✗" else "")
+            appendLine("家：" + (Home.get(this@ManageActivity)?.let {
+                "已设定，${Home.radius(this@ManageActivity)} m 内开机不弹"
+            } ?: "未设定"))
+            appendLine("电池优化：" + if (ignoringBattery) "已豁免" else "未豁免（可能被杀）")
+            appendLine()
+            if (last == 0L) {
+                appendLine("⚠ 从没收到过开机广播。")
+                appendLine("车机 ROM 多半有「自启动管理」白名单，需要到系统设置里")
+                appendLine("允许本应用自启动；部分 ROM 还要求应用至少被打开过一次。")
+            } else {
+                appendLine("上次开机广播：${fmt.format(java.util.Date(last))}")
+                appendLine("　来源：${sp.getString("lastBootAction", "-")}")
+                appendLine("　结果：${sp.getString("lastBootResult", "-")}")
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("开机自启诊断")
+            .setMessage(msg)
+            .setPositiveButton("确定", null)
+            .setNeutralButton("电池优化设置") { _, _ ->
+                runCatching {
+                    startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }.onFailure { toast("这台车机没有这个设置页") }
+            }
+            .setNegativeButton("应用详情") { _, _ ->
+                runCatching {
+                    startActivity(
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                    )
+                }.onFailure { toast("打不开设置") }
+            }
+            .show()
     }
 
     private fun requestOverlayPermission() {

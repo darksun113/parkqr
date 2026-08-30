@@ -86,22 +86,8 @@ class MapPickerActivity : AppCompatActivity() {
             setOnClickListener {
                 val q = searchIn.text.toString().trim()
                 if (q.isBlank()) return@setOnClickListener
-                isEnabled = false
-                kotlin.concurrent.thread {
-                    val r = Nominatim.search(q)
-                    runOnUiThread {
-                        isEnabled = true
-                        if (isFinishing) return@runOnUiThread
-                        if (r == null) {
-                            android.widget.Toast.makeText(
-                                this@MapPickerActivity,
-                                "没搜到「$q」（要联网；试试更完整的地名）",
-                                android.widget.Toast.LENGTH_LONG
-                            ).show()
-                        } else {
-                            web.evaluateJavascript("map.setView([${r.lat},${r.lng}],16);", null)
-                        }
-                    }
+                PlaceSearch.run(this@MapPickerActivity, q) { p ->
+                    web.evaluateJavascript("map.setView([${p.lat},${p.lng}],16);", null)
                 }
             }
         }

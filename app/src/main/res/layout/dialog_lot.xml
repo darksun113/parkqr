@@ -71,11 +71,27 @@
             android:textSize="13sp"
             android:textColor="@color/text_dim" />
 
-        <Button
-            android:id="@+id/btnCode"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="手动输入码内容" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnCode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="手动输入码内容" />
+
+            <Space android:layout_width="8dp" android:layout_height="1dp" />
+
+            <Button
+                android:id="@+id/btnCodePhone"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="手机传码（选中本场）" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

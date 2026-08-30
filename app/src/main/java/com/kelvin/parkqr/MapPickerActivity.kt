@@ -77,6 +77,41 @@ class MapPickerActivity : AppCompatActivity() {
             text = "取消"
             setOnClickListener { finish() }
         }
+        val searchIn = android.widget.EditText(this).apply {
+            hint = "搜地名跳转：区/街道/商场/小区"
+            maxLines = 1
+        }
+        val btnSearch = Button(this).apply {
+            text = "搜地点"
+            setOnClickListener {
+                val q = searchIn.text.toString().trim()
+                if (q.isBlank()) return@setOnClickListener
+                isEnabled = false
+                kotlin.concurrent.thread {
+                    val r = Nominatim.search(q)
+                    runOnUiThread {
+                        isEnabled = true
+                        if (isFinishing) return@runOnUiThread
+                        if (r == null) {
+                            android.widget.Toast.makeText(
+                                this@MapPickerActivity,
+                                "没搜到「$q」（要联网；试试更完整的地名）",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            web.evaluateJavascript("map.setView([${r.lat},${r.lng}],16);", null)
+                        }
+                    }
+                }
+            }
+        }
+        val searchBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xFF101114.toInt())
+            addView(searchIn, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(btnSearch)
+        }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -87,8 +122,9 @@ class MapPickerActivity : AppCompatActivity() {
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(bar, LinearLayout.LayoutParams(-1, -2))
+            addView(searchBar, LinearLayout.LayoutParams(-1, -2))
             addView(web, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(bar, LinearLayout.LayoutParams(-1, -2))
         }
         setContentView(root)
 

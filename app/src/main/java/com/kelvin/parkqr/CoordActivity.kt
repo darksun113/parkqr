@@ -40,7 +40,7 @@ abstract class CoordActivity : AppCompatActivity() {
     fun promptManualCoord(onResult: (Double, Double) -> Unit) {
         val pad = (20 * resources.displayMetrics.density).toInt()
         val input = EditText(this).apply {
-            hint = "纬度,经度  例：22.5361,113.9345"
+            hint = "纬度,经度；或直接粘高德/百度分享链接"
         }
         val group = RadioGroup(this)
         listOf(
@@ -61,7 +61,23 @@ abstract class CoordActivity : AppCompatActivity() {
             .setTitle("手动输入坐标")
             .setView(box)
             .setPositiveButton("确定") { _, _ ->
-                val parts = input.text.toString()
+                val raw = input.text.toString().trim()
+                // 粘的是链接：手机地图不给裸坐标，只给分享短链——解析它
+                if (raw.contains("http")) {
+                    Toast.makeText(this, "正在解析链接…", Toast.LENGTH_SHORT).show()
+                    kotlin.concurrent.thread {
+                        val r = LinkResolver.resolve(raw)
+                        runOnUiThread {
+                            if (r == null) {
+                                Toast.makeText(this, "解析不出坐标：检查网络，或换「地图选点」", Toast.LENGTH_LONG).show()
+                            } else {
+                                onResult(r.first, r.second)
+                            }
+                        }
+                    }
+                    return@setPositiveButton
+                }
+                val parts = raw
                     .replace("，", ",").replace(" ", "").split(",")
                 val lat = parts.getOrNull(0)?.toDoubleOrNull()
                 val lng = parts.getOrNull(1)?.toDoubleOrNull()

@@ -98,11 +98,12 @@ class UploadServer(
             .ifBlank { params["newName"]?.firstOrNull().orEmpty() }
             .trim()
         val pasted = decodeB64(params["payloadB64"]?.firstOrNull()).trim()
+        val locRaw = decodeB64(params["locB64"]?.firstOrNull()).trim()
         val tmpPath = files["photo"]
         val bytes = tmpPath?.let { runCatching { File(it).readBytes() }.getOrNull() }
 
-        if (pasted.isBlank() && (bytes == null || bytes.isEmpty())) {
-            return html(result("粘贴二维码内容、或选一张照片，二选一。", false))
+        if (pasted.isBlank() && (bytes == null || bytes.isEmpty()) && locRaw.isBlank()) {
+            return html(result("码（粘贴内容或照片）和位置至少填一样。", false))
         }
 
         val lot = when {
@@ -112,15 +113,15 @@ class UploadServer(
             else -> return html(result("请选择停车场，或填写新停车场名称", false))
         }
 
-        val msg: String
+        var msg = ""
         if (pasted.isNotBlank()) {
             // 粘贴优先：这就是码的原文，不需要任何识别
             lot.payload = pasted
             lot.imageFile?.let { store.deleteImage(it) }
             lot.imageFile = null
             msg = "已保存粘贴的内容（车机端会重新绘制成二维码）：\n$pasted"
-        } else {
-            val text = QrUtil.decode(bytes!!)
+        } else if (bytes != null && bytes.isNotEmpty()) {
+            val text = QrUtil.decode(bytes)
             if (text != null) {
                 lot.payload = text
                 lot.imageFile?.let { store.deleteImage(it) }
@@ -133,9 +134,32 @@ class UploadServer(
                 msg = "解不出二维码内容（多半是微信小程序码，不是标准 QR），已按原图保存。"
             }
         }
+        // 位置（可选）：分享链接就解析（高德/腾讯 GCJ、百度 BD 自动转 WGS），
+        // 裸的"纬度,经度"按 GCJ-02 处理（手机地图上看到的都是 GCJ 系）
+        var locMsg = ""
+        if (locRaw.isNotBlank()) {
+            val r = if (locRaw.contains("http")) {
+                LinkResolver.resolve(locRaw)
+            } else {
+                val parts = locRaw.replace("，", ",").replace(" ", "").split(",")
+                val a = parts.getOrNull(0)?.toDoubleOrNull()
+                val b = parts.getOrNull(1)?.toDoubleOrNull()
+                if (a != null && b != null) {
+                    val (la, ln) = if (a in 3.0..54.0) a to b else b to a
+                    CoordConv.gcjToWgs(la, ln)
+                } else null
+            }
+            if (r != null) {
+                lot.lat = r.first
+                lot.lng = r.second
+                locMsg = "\n位置已更新：%.6f, %.6f（已转 WGS-84）".format(r.first, r.second)
+            } else {
+                locMsg = "\n⚠ 位置没解析出来（链接打不开或没坐标），其余已保存。"
+            }
+        }
         store.save(lot)
         onChanged()
-        return html(result("「${lot.name}」保存成功。\n\n$msg", true))
+        return html(result("「${lot.name}」保存成功。$locMsg\n\n$msg", true))
     }
 
     private fun decodeB64(v: String?): String {
@@ -199,6 +223,10 @@ class UploadServer(
   <input type="hidden" name="payloadB64" id="payloadB64">
   <label>方式二：或拍一张物料码照片</label>
   <input type="file" name="photo" accept="image/*">
+  <label>位置（可选）：粘高德/百度「分享」链接，或输 纬度,经度</label>
+  <textarea id="locText" rows="2"
+    placeholder="高德/百度 App 里对着停车场点「分享→复制链接」，粘到这里，坐标自动解析换算"></textarea>
+  <input type="hidden" name="locB64" id="locB64">
   <button type="submit">上传</button>
 </form>
 <script>
@@ -209,6 +237,7 @@ function b64(str){
 function prep(){
   document.getElementById('newNameB64').value = b64(document.getElementById('newName').value);
   document.getElementById('payloadB64').value = b64(document.getElementById('payloadText').value.trim());
+  document.getElementById('locB64').value = b64(document.getElementById('locText').value.trim());
   return true;
 }
 </script>

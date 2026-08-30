@@ -16,9 +16,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 import kotlin.concurrent.thread
 
 /**
@@ -130,30 +127,17 @@ class LotMapActivity : AppCompatActivity() {
         if (lots.isEmpty()) toast("还没有带坐标的停车场")
     }
 
-    /** Nominatim 地名搜索（免费；按其政策带 UA、单次手动触发）。 */
     private fun geocode(q: String) {
         if (q.isBlank()) return
         thread {
-            val r = runCatching {
-                val url = "https://nominatim.openstreetmap.org/search?format=json&limit=1" +
-                    "&countrycodes=cn&q=" + URLEncoder.encode(q, "UTF-8")
-                val c = URL(url).openConnection() as HttpURLConnection
-                c.connectTimeout = 8000
-                c.readTimeout = 8000
-                c.setRequestProperty("User-Agent", "ParkQR/1.4 (github.com/darksun113/parkqr)")
-                val a = JSONArray(c.inputStream.bufferedReader().readText())
-                if (a.length() == 0) null
-                else a.getJSONObject(0).let {
-                    Triple(it.getDouble("lat"), it.getDouble("lon"), it.optString("display_name"))
-                }
-            }.getOrNull()
+            val r = Nominatim.search(q)
             runOnUiThread {
                 if (isFinishing) return@runOnUiThread
                 if (r == null) {
                     toast("没搜到「$q」（要联网；试试更完整的地名）")
                 } else {
-                    web.evaluateJavascript("jumpTo(${r.first},${r.second},15);", null)
-                    toast(r.third.take(60))
+                    web.evaluateJavascript("jumpTo(${r.lat},${r.lng},15);", null)
+                    toast(r.name.take(60))
                 }
             }
         }

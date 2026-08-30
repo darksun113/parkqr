@@ -148,3 +148,39 @@ class CoordConvTest {
         assertEquals(-122.4194, lng, 1e-9)
     }
 }
+
+@RunWith(AndroidJUnit4::class)
+class LinkResolverTest {
+
+    /** 高德 marker URL：position=lng,lat 是 GCJ，应转成 WGS */
+    @Test
+    fun amapMarkerUrl() {
+        val (gLat, gLng) = CoordConv.wgsToGcj(22.5361, 113.9345)
+        val url = "https://uri.amap.com/marker?position=%.6f,%.6f&name=test".format(gLng, gLat)
+        val r = LinkResolver.extract(url, isBaidu = false)!!
+        assertTrue(Geo.distance(22.5361, 113.9345, r.first, r.second) < 2.0)
+    }
+
+    /** 裸数对（lat,lng 顺序）也能识别 */
+    @Test
+    fun barePairLatLng() {
+        val r = LinkResolver.extract("找到了 22.53331,113.93937 这里", isBaidu = false)!!
+        // GCJ->WGS 后应落在万象天地附近（几十米内）
+        assertTrue(Geo.distance(22.5361, 113.9345, r.first, r.second) < 100.0)
+    }
+
+    /** 百度墨卡托米制 -> 经纬度：链路 sanity（深圳范围） */
+    @Test
+    fun baiduMercator() {
+        // 深圳大致 mc 坐标（lng≈113.93 -> x≈1.268e7, lat≈22.53 -> y≈2.57e6）
+        val ll = LinkResolver.mcToLl(12683054.0, 2568813.0)
+        assertTrue(ll != null)
+        assertTrue("got $ll", ll!!.first in 113.0..115.0 && ll.second in 22.0..23.5)
+    }
+
+    /** 无坐标的文本返回 null */
+    @Test
+    fun noCoordReturnsNull() {
+        assertTrue(LinkResolver.extract("https://surl.amap.com/abc 快来停车", false) == null)
+    }
+}

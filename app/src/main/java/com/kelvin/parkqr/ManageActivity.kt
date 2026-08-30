@@ -214,12 +214,22 @@ class ManageActivity : CoordActivity() {
     // ---------- 新建 / 编辑 ----------
 
     private fun editLot(lot: Lot, isNew: Boolean) {
-        LotEditDialog.show(this, store, lot, isNew) { reload() }
+        LotEditDialog.show(this, store, lot, isNew, onChanged = { reload() }) { saved ->
+            // 新建保存后顺手把码传了——省得再去列表里找
+            if (!saved.hasCode) {
+                AlertDialog.Builder(this)
+                    .setTitle("「${saved.name}」已创建")
+                    .setMessage("现在就传缴费码？上传页会自动选中它。")
+                    .setPositiveButton("手机传码") { _, _ -> showServer(saved.id) }
+                    .setNegativeButton("稍后", null)
+                    .show()
+            }
+        }
     }
 
     // ---------- 手机传码 ----------
 
-    private fun showServer() {
+    private fun showServer(preselect: String? = null) {
         val ip = UploadServer.localAddress(this)
         if (ip == null) {
             toast("车机没连上网络。连一下 WiFi，或者开车机热点让手机连上来。")
@@ -227,8 +237,10 @@ class ManageActivity : CoordActivity() {
         }
         val url = "http://$ip:${UploadServer.PORT}/"
 
+        server?.preselectId = preselect
         if (server == null) {
             server = UploadServer(this, store) { runOnUiThread { reload() } }
+            server!!.preselectId = preselect
             runCatching { server!!.start(NANO_TIMEOUT, true) }
                 .onFailure {
                     server = null

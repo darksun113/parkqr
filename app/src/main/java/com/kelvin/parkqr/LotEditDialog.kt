@@ -13,7 +13,14 @@ import androidx.appcompat.app.AlertDialog
  */
 object LotEditDialog {
 
-    fun show(act: CoordActivity, store: LotStore, lot: Lot, isNew: Boolean, onChanged: () -> Unit) {
+    fun show(
+        act: CoordActivity,
+        store: LotStore,
+        lot: Lot,
+        isNew: Boolean,
+        onChanged: () -> Unit,
+        onSavedNew: ((Lot) -> Unit)? = null
+    ) {
         val view = LayoutInflater.from(act).inflate(R.layout.dialog_lot, null)
         val inName = view.findViewById<EditText>(R.id.inName)
         val inNote = view.findViewById<EditText>(R.id.inNote)
@@ -118,6 +125,7 @@ object LotEditDialog {
                 lot.imageFile = imageFile
                 store.save(lot)
                 onChanged()
+                if (isNew) onSavedNew?.invoke(lot)
             }
             .setNegativeButton("取消", null)
 

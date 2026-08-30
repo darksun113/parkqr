@@ -20,7 +20,11 @@ class UploadServer(
     private val ctx: Context,
     private val store: LotStore,
     private val onChanged: () -> Unit
-) : NanoHTTPD("0.0.0.0", PORT) {   // 显式绑通配地址：手机从局域网连进来，不能只监听回环
+) : NanoHTTPD("0.0.0.0", PORT) {
+
+    /** 车机端刚新建的场：上传页把它置顶并预选中（新建的场多半没坐标，按距离排序会沉底） */
+    @Volatile
+    var preselectId: String? = null   // 显式绑通配地址：手机从局域网连进来，不能只监听回环
 
     companion object {
         const val PORT = 8765
@@ -183,10 +187,23 @@ class UploadServer(
             lot to d
         }.sortedWith(compareBy({ it.second == null }, { it.second ?: 0.0 }))
 
-        val options = ranked.joinToString("") { (lot, d) ->
-            val dist = d?.let { " · ${Geo.format(it)}" } ?: ""
-            val flag = if (lot.hasCode) " ✓已有码" else " ▲缺码"
-            """<option value="${esc(lot.id)}">${esc(lot.name)}$dist$flag</option>"""
+        val pre = preselectId
+        // 预选的场置顶，其余按距离排
+        val ordered = if (pre != null) {
+            ranked.sortedBy { if (it.first.id == pre) -1.0 else (it.second ?: Double.MAX_VALUE / 2) }
+        } else ranked
+        val lotsJson = org.json.JSONArray().also { arr ->
+            ordered.forEach { (lot, d) ->
+                arr.put(
+                    org.json.JSONObject()
+                        .put("id", lot.id)
+                        .put("label", buildString {
+                            append(lot.name)
+                            d?.let { append(" · ${Geo.format(it)}") }
+                            append(if (lot.hasCode) " ✓已有码" else " ▲缺码")
+                        })
+                )
+            }
         }
         return """
 <!doctype html><html lang="zh-CN"><head>
@@ -207,10 +224,10 @@ class UploadServer(
 <h1>传物料码到车机</h1>
 <p class="sub">拍停车场缴费码那张贴纸，选好对应停车场，上传即可。</p>
 <form method="post" action="/upload" enctype="multipart/form-data" onsubmit="return prep()">
-  <label>停车场</label>
-  <select name="lotId" id="lotId" onchange="document.getElementById('nn').style.display=this.value==='__new__'?'block':'none'">
-    $options
-    <option value="__new__">＋ 新建停车场…</option>
+  <label>停车场（可搜索）</label>
+  <input type="text" id="lotFilter" placeholder="输名字过滤，例：海雅">
+  <select name="lotId" id="lotId" size="1" style="margin-top:8px"
+    onchange="document.getElementById('nn').style.display=this.value==='__new__'?'block':'none'">
   </select>
   <div id="nn" style="display:${if (store.all().isEmpty()) "block" else "none"}">
     <label>新停车场名称</label>
@@ -230,6 +247,36 @@ class UploadServer(
   <button type="submit">上传</button>
 </form>
 <script>
+var LOTS = $lotsJson;
+var PRESELECT = ${pre?.let { "\"${esc(it)}\"" } ?: "null"};
+function renderOptions(filter) {
+  var sel = document.getElementById('lotId');
+  var cur = sel.value;
+  sel.innerHTML = '';
+  var q = (filter || '').toLowerCase();
+  LOTS.forEach(function(l) {
+    if (q && l.label.toLowerCase().indexOf(q) < 0) return;
+    var o = document.createElement('option');
+    o.value = l.id; o.textContent = l.label;
+    sel.appendChild(o);
+  });
+  var nn = document.createElement('option');
+  nn.value = '__new__'; nn.textContent = '＋ 新建停车场…';
+  sel.appendChild(nn);
+  // 优先恢复：预选 > 之前选的 > 第一项
+  if (PRESELECT && !q) { sel.value = PRESELECT; }
+  else if (cur) {
+    sel.value = cur;
+    if (sel.value !== cur) sel.selectedIndex = 0;
+  }
+  document.getElementById('nn').style.display = sel.value === '__new__' ? 'block' : 'none';
+}
+document.addEventListener('DOMContentLoaded', function() {
+  renderOptions('');
+  document.getElementById('lotFilter').addEventListener('input', function() {
+    renderOptions(this.value);
+  });
+});
 function b64(str){
   // 先转 UTF-8 字节再 base64，btoa 不能直接吃中文
   return str ? btoa(String.fromCharCode.apply(null, new TextEncoder().encode(str))) : '';

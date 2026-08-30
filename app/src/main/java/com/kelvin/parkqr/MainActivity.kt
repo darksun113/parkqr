@@ -62,7 +62,7 @@ class MainActivity : CoordActivity() {
             if (lot == null) {
                 toast("还没有停车场")
             } else {
-                LotEditDialog.show(this, store, lot, isNew = false) { refresh() }
+                LotEditDialog.show(this, store, lot, isNew = false, onChanged = { refresh() })
             }
         }
         val btnRefresh = findViewById<Button>(R.id.btnRefresh)

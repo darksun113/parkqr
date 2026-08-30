@@ -235,7 +235,8 @@ class ManageActivity : CoordActivity() {
             toast("车机没连上网络。连一下 WiFi，或者开车机热点让手机连上来。")
             return
         }
-        val url = "http://$ip:${UploadServer.PORT}/"
+        // 带时间戳：微信对同 URL 整页缓存极其激进，每次开对话框生成"新" URL 绕开它
+        val url = "http://$ip:${UploadServer.PORT}/?s=${System.currentTimeMillis() / 1000}"
 
         server?.preselectId = preselect
         if (server == null) {

@@ -86,8 +86,20 @@ class UploadServer(
 
     override fun serve(session: IHTTPSession): Response = when {
         session.method == Method.POST && session.uri == "/upload" -> handleUpload(session)
+        session.uri == "/lots" -> json(lotsJson().toString())
         else -> html(page())
     }
+
+    /** 微信内置浏览器缓存极其激进，所有响应一律禁缓存 */
+    private fun noCache(r: Response): Response = r.apply {
+        addHeader("Cache-Control", "no-store, no-cache, must-revalidate")
+        addHeader("Pragma", "no-cache")
+        addHeader("Expires", "0")
+    }
+
+    private fun json(body: String) = noCache(
+        newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", body)
+    )
 
     private fun handleUpload(session: IHTTPSession): Response {
         val files = HashMap<String, String>()
@@ -173,12 +185,12 @@ class UploadServer(
         }.getOrDefault("")
     }
 
-    private fun html(body: String) =
+    private fun html(body: String) = noCache(
         newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body)
+    )
 
-    private fun page(): String {
-        // 按距离排序：人就在停车场，要补码的场就在最前面。没码的排在有码的前面
-        // （来传码的多半是给没码的场传），同距离再按名称。
+    /** 列表数据：按距离排序（预选置顶），页面初始渲染和 /lots 实时接口共用 */
+    private fun lotsJson(): org.json.JSONObject {
         val loc = Geo.lastKnown(ctx)
         val ranked = store.all().map { lot ->
             val d = if (loc != null && lot.hasLocation) {
@@ -188,23 +200,40 @@ class UploadServer(
         }.sortedWith(compareBy({ it.second == null }, { it.second ?: 0.0 }))
 
         val pre = preselectId
-        // 预选的场置顶，其余按距离排
         val ordered = if (pre != null) {
             ranked.sortedBy { if (it.first.id == pre) -1.0 else (it.second ?: Double.MAX_VALUE / 2) }
         } else ranked
-        val lotsJson = org.json.JSONArray().also { arr ->
-            ordered.forEach { (lot, d) ->
-                arr.put(
-                    org.json.JSONObject()
-                        .put("id", lot.id)
-                        .put("label", buildString {
-                            append(lot.name)
-                            d?.let { append(" · ${Geo.format(it)}") }
-                            append(if (lot.hasCode) " ✓已有码" else " ▲缺码")
-                        })
-                )
-            }
+        val arr = org.json.JSONArray()
+        ordered.forEach { (lot, d) ->
+            arr.put(
+                org.json.JSONObject()
+                    .put("id", lot.id)
+                    .put("label", buildString {
+                        append(lot.name)
+                        d?.let { append(" · ${Geo.format(it)}") }
+                        append(if (lot.hasCode) " ✓已有码" else " ▲缺码")
+                    })
+            )
         }
+        return org.json.JSONObject().put("lots", arr).put("preselect", pre ?: "")
+    }
+
+    private fun page(): String {
+        val data = lotsJson()
+        val lotsJson = data.getJSONArray("lots")
+        val pre = preselectId
+        // 服务端先把 option 渲染出来：微信内置浏览器可能拦截/延迟 JS，
+        // 纯 JS 渲染会让下拉整个空掉（v1.5.2 的真实故障）。JS 只做增强过滤。
+        val serverOptions = buildString {
+            for (i in 0 until lotsJson.length()) {
+                val o = lotsJson.getJSONObject(i)
+                val id = o.getString("id")
+                val sel = if (id == pre) " selected" else ""
+                append("""<option value="${esc(id)}"$sel>${esc(o.getString("label"))}</option>""")
+            }
+            append("""<option value="__new__">＋ 新建停车场…</option>""")
+        }
+        val lotCount = lotsJson.length()
         return """
 <!doctype html><html lang="zh-CN"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -228,7 +257,11 @@ class UploadServer(
   <input type="text" id="lotFilter" placeholder="输名字过滤，例：海雅">
   <select name="lotId" id="lotId" size="1" style="margin-top:8px"
     onchange="document.getElementById('nn').style.display=this.value==='__new__'?'block':'none'">
+    $serverOptions
   </select>
+  <div class="hint" style="margin-top:6px">
+    共 <span id="lotCount">$lotCount</span> 个停车场 · <a href="#" onclick="refreshLots();return false" style="color:#2f6fed">刷新列表</a>
+  </div>
   <div id="nn" style="display:${if (store.all().isEmpty()) "block" else "none"}">
     <label>新停车场名称</label>
     <input type="text" id="newName" placeholder="例如：万象天地 B2">
@@ -251,6 +284,7 @@ var LOTS = $lotsJson;
 var PRESELECT = ${pre?.let { "\"${esc(it)}\"" } ?: "null"};
 function renderOptions(filter) {
   var sel = document.getElementById('lotId');
+  if (!LOTS || !LOTS.length) return;   // 没数据别把服务端渲染的选项清掉
   var cur = sel.value;
   sel.innerHTML = '';
   var q = (filter || '').toLowerCase();
@@ -271,8 +305,25 @@ function renderOptions(filter) {
   }
   document.getElementById('nn').style.display = sel.value === '__new__' ? 'block' : 'none';
 }
+function refreshLots() {
+  // HTML 可能被微信缓存，列表数据必须现拉——带时间戳绕缓存
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', '/lots?_=' + Date.now(), true);
+  xhr.onload = function() {
+    try {
+      var d = JSON.parse(xhr.responseText);
+      LOTS = d.lots;
+      PRESELECT = d.preselect || null;
+      renderOptions(document.getElementById('lotFilter').value);
+      var c = document.getElementById('lotCount');
+      if (c) c.textContent = LOTS.length;
+    } catch (e) {}
+  };
+  xhr.send();
+}
 document.addEventListener('DOMContentLoaded', function() {
   renderOptions('');
+  refreshLots();
   document.getElementById('lotFilter').addEventListener('input', function() {
     renderOptions(this.value);
   });
@@ -288,8 +339,9 @@ function prep(){
   return true;
 }
 </script>
-<p class="hint">位置不在这里填。到了停车场，在车机上点「记录当前位置」——车机 GPS 比手机准，
-而且浏览器在明文 http 下拿不到定位。</p>
+<p class="hint">位置三选一：上面粘地图分享链接（最准，自动换算坐标系）；
+或到了停车场在车机上点「记录当前位置」；或在车机上用「地图选点」。
+浏览器在明文 http 下拿不到定位，所以这里不自动取。</p>
 </body></html>
 """.trimIndent()
     }

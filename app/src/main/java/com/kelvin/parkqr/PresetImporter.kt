@@ -75,6 +75,7 @@ object PresetImporter {
                                 lat = p.lat
                                 lng = p.lng
                                 note = p.note
+                                payload = p.payload   // 社区数据可选自带缴费码内容
                             })
                             added++
                         }
@@ -87,7 +88,10 @@ object PresetImporter {
         }
     }
 
-    private data class P(val name: String, val lat: Double, val lng: Double, val note: String)
+    private data class P(
+        val name: String, val lat: Double, val lng: Double,
+        val note: String, val payload: String?
+    )
 
     private fun parse(body: String): Pair<String, List<P>> {
         val o = JSONObject(body)
@@ -102,7 +106,10 @@ object PresetImporter {
                 "gcj02" -> CoordConv.gcjToWgs(lat, lng).let { lat = it.first; lng = it.second }
                 "bd09" -> CoordConv.bdToWgs(lat, lng).let { lat = it.first; lng = it.second }
             }
-            list.add(P(e.getString("name"), lat, lng, e.optString("note")))
+            list.add(P(
+                e.getString("name"), lat, lng, e.optString("note"),
+                e.optString("payload").ifBlank { null }
+            ))
         }
         return o.optString("city", "未知城市") to list
     }

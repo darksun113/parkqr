@@ -331,7 +331,7 @@ class ManageActivity : AppCompatActivity() {
         val url = "http://$ip:${UploadServer.PORT}/"
 
         if (server == null) {
-            server = UploadServer(store) { runOnUiThread { reload() } }
+            server = UploadServer(this, store) { runOnUiThread { reload() } }
             runCatching { server!!.start(NANO_TIMEOUT, true) }
                 .onFailure {
                     server = null

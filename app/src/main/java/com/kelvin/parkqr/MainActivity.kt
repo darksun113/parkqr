@@ -126,9 +126,17 @@ class MainActivity : AppCompatActivity() {
         plate.text = plates.selected() ?: "未设置"
 
         val dist = ranked.firstOrNull { it.first.id == lot.id }?.second
+        // 离得最近的那个场若还没码（多半是导入的预设），提醒补一下 ——
+        // 否则用户看到的是"次近的有码场"，容易没意识到脚下这个场还缺码
+        val nearestNoCode = ranked.firstOrNull()?.takeIf { (l, d) ->
+            !l.hasCode && l.id != lot.id && d != null && d < 300.0
+        }
         lotMeta.text = buildString {
             append(if (dist != null) "距离约 ${Geo.format(dist)}" else "无坐标")
             if (lot.note.isNotBlank()) append("  ·  ${lot.note}")
+            nearestNoCode?.let { (l, _) ->
+                append("\n▲ 脚下的「${l.name}」还没码，管理→手机传码可补")
+            }
         }
 
         if (!lot.hasCode) {

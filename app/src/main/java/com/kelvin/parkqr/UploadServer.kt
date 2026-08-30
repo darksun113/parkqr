@@ -17,6 +17,7 @@ import java.net.NetworkInterface
  * 直接被禁。位置由车机自己在停车场按一下「记录当前位置」来采，反而更准。
  */
 class UploadServer(
+    private val ctx: Context,
     private val store: LotStore,
     private val onChanged: () -> Unit
 ) : NanoHTTPD("0.0.0.0", PORT) {   // 显式绑通配地址：手机从局域网连进来，不能只监听回环
@@ -148,9 +149,20 @@ class UploadServer(
         newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body)
 
     private fun page(): String {
-        val options = store.all().joinToString("") {
-            val flag = if (it.hasCode) " ✓已有码" else ""
-            """<option value="${esc(it.id)}">${esc(it.name)}$flag</option>"""
+        // 按距离排序：人就在停车场，要补码的场就在最前面。没码的排在有码的前面
+        // （来传码的多半是给没码的场传），同距离再按名称。
+        val loc = Geo.lastKnown(ctx)
+        val ranked = store.all().map { lot ->
+            val d = if (loc != null && lot.hasLocation) {
+                Geo.distance(loc.latitude, loc.longitude, lot.lat!!, lot.lng!!)
+            } else null
+            lot to d
+        }.sortedWith(compareBy({ it.second == null }, { it.second ?: 0.0 }))
+
+        val options = ranked.joinToString("") { (lot, d) ->
+            val dist = d?.let { " · ${Geo.format(it)}" } ?: ""
+            val flag = if (lot.hasCode) " ✓已有码" else " ▲缺码"
+            """<option value="${esc(lot.id)}">${esc(lot.name)}$dist$flag</option>"""
         }
         return """
 <!doctype html><html lang="zh-CN"><head>

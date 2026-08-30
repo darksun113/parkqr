@@ -40,6 +40,24 @@
         </LinearLayout>
 
         <Button
+            android:id="@+id/btnRefresh"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:textColor="@color/accent"
+            android:text="刷新" />
+
+        <Button
+            android:id="@+id/btnEdit"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:textColor="@color/accent"
+            android:text="编辑" />
+
+        <Button
             android:id="@+id/btnSwitch"
             style="?android:attr/buttonBarButtonStyle"
             android:layout_width="wrap_content"

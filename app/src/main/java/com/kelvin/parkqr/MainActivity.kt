@@ -23,7 +23,7 @@ import androidx.core.app.ActivityCompat
  * 打开就显示"离你最近的那个停车场"的缴费码 + 车牌。
  * 用手机扫车机屏幕上的这个码去付款。
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : CoordActivity() {
 
     private lateinit var store: LotStore
     private lateinit var plates: PlateStore
@@ -57,6 +57,45 @@ class MainActivity : AppCompatActivity() {
         plate = findViewById(R.id.plate)
         plateRow = findViewById(R.id.plateRow)
 
+        findViewById<Button>(R.id.btnEdit).setOnClickListener {
+            val lot = current
+            if (lot == null) {
+                toast("还没有停车场")
+            } else {
+                LotEditDialog.show(this, store, lot, isNew = false) { refresh() }
+            }
+        }
+        val btnRefresh = findViewById<Button>(R.id.btnRefresh)
+        btnRefresh.setOnClickListener {
+            btnRefresh.isEnabled = false
+            btnRefresh.text = "定位中…"
+            Geo.requestFix(this, timeoutMs = 10_000) { loc ->
+                btnRefresh.isEnabled = true
+                btnRefresh.text = "刷新定位"
+                // requestFix 超时会回落到缓存的最后定位——那对"开机匹配"合理，
+                // 但"刷新"要的是新鲜位置：太旧（>2 分钟）就按没信号处理
+                val fresh = loc != null &&
+                    System.currentTimeMillis() - loc.time < 2 * 60_000
+                if (fresh && loc != null) {
+                    current = null   // 清掉手动选择，按新位置重新匹配最近的
+                    refresh()
+                    toast("已定位（精度约 ${loc.accuracy.toInt()} m），已匹配最近停车场")
+                } else {
+                    // 地库里收不到星是常态：引导去列表搜索
+                    AlertDialog.Builder(this)
+                        .setTitle("收不到卫星信号")
+                        .setMessage("地库里定位不到很正常。可以打开停车场列表，用搜索直接找到你所在的场。")
+                        .setPositiveButton("打开列表搜索") { _, _ ->
+                            startActivity(
+                                Intent(this, ManageActivity::class.java)
+                                    .putExtra("focusSearch", true)
+                            )
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
+                }
+            }
+        }
         findViewById<Button>(R.id.btnSwitch).setOnClickListener { showSwitcher() }
         findViewById<Button>(R.id.btnManage).setOnClickListener {
             startActivity(Intent(this, ManageActivity::class.java))

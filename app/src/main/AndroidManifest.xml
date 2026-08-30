@@ -43,6 +43,11 @@
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
 
         <activity
+            android:name=".LotMapActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
+
+        <activity
             android:name=".MapPickerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />

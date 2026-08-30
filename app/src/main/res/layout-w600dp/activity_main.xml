@@ -127,6 +127,26 @@
             android:orientation="horizontal">
 
             <Button
+                android:id="@+id/btnRefresh"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp"
+                android:textSize="16sp"
+                android:text="刷新定位" />
+
+            <Space android:layout_width="12dp" android:layout_height="1dp" />
+
+            <Button
+                android:id="@+id/btnEdit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp"
+                android:textSize="16sp"
+                android:text="编辑" />
+
+            <Space android:layout_width="12dp" android:layout_height="1dp" />
+
+            <Button
                 android:id="@+id/btnSwitch"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"

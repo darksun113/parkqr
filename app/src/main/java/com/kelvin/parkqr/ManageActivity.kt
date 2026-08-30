@@ -15,19 +15,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
-class ManageActivity : AppCompatActivity() {
+class ManageActivity : CoordActivity() {
 
     private lateinit var store: LotStore
-    /** 地图选点回调：MapPicker 是独立 Activity，结果回来时对话框还开着，走这个回调把坐标塞回去 */
-    private var pendingPick: ((Double, Double) -> Unit)? = null
-    private val mapPicker = registerForActivityResult(
+    private var query: String = ""
+    private val lotMap = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { r ->
-        val d = r.data
-        if (r.resultCode == RESULT_OK && d != null) {
-            pendingPick?.invoke(d.getDoubleExtra("lat", 0.0), d.getDoubleExtra("lng", 0.0))
+        val id = r.data?.getStringExtra("lotId")
+        if (r.resultCode == RESULT_OK && id != null) {
+            store.byId(id)?.let { editLot(it, isNew = false) }
         }
-        pendingPick = null
     }
     private lateinit var list: RecyclerView
     private lateinit var emptyHint: TextView
@@ -178,6 +176,22 @@ class ManageActivity : AppCompatActivity() {
                 .show()
         }
 
+        findViewById<EditText>(R.id.inSearch).addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) {
+                query = s?.toString()?.trim().orEmpty()
+                reload()
+            }
+        })
+        findViewById<Button>(R.id.btnMap).setOnClickListener {
+            lotMap.launch(android.content.Intent(this, LotMapActivity::class.java))
+        }
+
+        if (intent.getBooleanExtra("focusSearch", false)) {
+            findViewById<EditText>(R.id.inSearch).requestFocus()
+        }
+
         reload()
     }
 
@@ -187,137 +201,20 @@ class ManageActivity : AppCompatActivity() {
     }
 
     private fun reload() {
-        adapter.items = store.all().sortedBy { it.name }
+        val all = store.all()
+        adapter.items = (if (query.isBlank()) all else all.filter {
+            it.name.contains(query, ignoreCase = true) ||
+                it.note.contains(query, ignoreCase = true)
+        }).sortedBy { it.name }
         adapter.notifyDataSetChanged()
         emptyHint.visibility = if (adapter.items.isEmpty()) View.VISIBLE else View.GONE
+        emptyHint.text = if (query.isBlank()) "还没有停车场" else "没有匹配「$query」的停车场"
     }
 
     // ---------- 新建 / 编辑 ----------
 
     private fun editLot(lot: Lot, isNew: Boolean) {
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_lot, null)
-        val inName = view.findViewById<EditText>(R.id.inName)
-        val inNote = view.findViewById<EditText>(R.id.inNote)
-        val locText = view.findViewById<TextView>(R.id.locText)
-        val btnLoc = view.findViewById<Button>(R.id.btnLoc)
-        val codeText = view.findViewById<TextView>(R.id.codeText)
-        val btnCode = view.findViewById<Button>(R.id.btnCode)
-
-        inName.setText(lot.name)
-        inNote.setText(lot.note)
-
-        var lat = lot.lat
-        var lng = lot.lng
-        fun renderLoc() {
-            locText.text = if (lat != null && lng != null) {
-                "已记录坐标：%.6f, %.6f".format(lat, lng)
-            } else {
-                "还没有坐标。到了停车场（最好在进地库之前）点下面这个按钮。"
-            }
-        }
-        renderLoc()
-
-        view.findViewById<Button>(R.id.btnCoordManual).setOnClickListener {
-            promptManualCoord { la, ln ->
-                lat = la; lng = ln
-                renderLoc()
-                toast("已填入（已转 WGS-84）")
-            }
-        }
-        view.findViewById<Button>(R.id.btnCoordMap).setOnClickListener {
-            pickOnMap(lat, lng, 0.0) { la, ln ->
-                lat = la; lng = ln
-                renderLoc()
-            }
-        }
-
-        btnLoc.setOnClickListener {
-            btnLoc.isEnabled = false
-            btnLoc.text = "定位中…"
-            locText.text = "正在等 GPS，最多 10 秒。停在露天/入口处成功率最高。"
-            Geo.requestFix(this, timeoutMs = 10_000) { loc ->
-                btnLoc.isEnabled = true
-                btnLoc.text = "记录当前位置"
-                if (loc == null) {
-                    renderLoc()
-                    toast("拿不到定位：检查权限和系统定位开关，或车机 GPS 还没定上")
-                } else {
-                    lat = loc.latitude
-                    lng = loc.longitude
-                    renderLoc()
-                    toast("已记录（精度约 ${loc.accuracy.toInt()} m）")
-                }
-            }
-        }
-
-        var payload = lot.payload
-        var imageFile = lot.imageFile
-        fun renderCode() {
-            codeText.text = when {
-                !payload.isNullOrBlank() -> "缴费码：标准二维码（存文本，显示时重绘）\n$payload"
-                !imageFile.isNullOrBlank() -> "缴费码：原图（解不出内容，多半是小程序码）"
-                else -> "缴费码：还没有。用「手机传码」上传，或手动输入。"
-            }
-        }
-        renderCode()
-
-        btnCode.setOnClickListener {
-            val input = EditText(this).apply {
-                hint = "微信扫物料码后复制的链接，粘/输到这里"
-                setText(payload.orEmpty())
-                minLines = 2
-            }
-            AlertDialog.Builder(this)
-                .setTitle("手动输入码内容")
-                .setView(input)
-                .setPositiveButton("确定") { _, _ ->
-                    val v = input.text.toString().trim()
-                    if (v.isNotBlank()) {
-                        payload = v
-                        imageFile?.let { store.deleteImage(it) }
-                        imageFile = null
-                        renderCode()
-                    }
-                }
-                .setNegativeButton("取消", null)
-                .show()
-        }
-
-        val b = AlertDialog.Builder(this)
-            .setTitle(if (isNew) "新建停车场" else "编辑停车场")
-            .setView(view)
-            .setPositiveButton("保存") { _, _ ->
-                val name = inName.text.toString().trim()
-                if (name.isEmpty()) {
-                    toast("名称不能为空")
-                    return@setPositiveButton
-                }
-                lot.name = name
-                lot.note = inNote.text.toString().trim()
-                lot.lat = lat
-                lot.lng = lng
-                lot.payload = payload
-                lot.imageFile = imageFile
-                store.save(lot)
-                reload()
-            }
-            .setNegativeButton("取消", null)
-
-        if (!isNew) {
-            b.setNeutralButton("删除") { _, _ -> confirmDelete(lot) }
-        }
-        b.show()
-    }
-
-    private fun confirmDelete(lot: Lot) {
-        AlertDialog.Builder(this)
-            .setTitle("删除「${lot.name}」？")
-            .setPositiveButton("删除") { _, _ ->
-                store.delete(lot.id)
-                reload()
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        LotEditDialog.show(this, store, lot, isNew) { reload() }
     }
 
     // ---------- 手机传码 ----------
@@ -381,61 +278,6 @@ class ManageActivity : AppCompatActivity() {
     private fun stopServer() {
         server?.stop()
         server = null
-    }
-
-    /** 手动输入坐标，支持三种来源坐标系，统一转成 WGS-84 回调。 */
-    private fun promptManualCoord(onResult: (Double, Double) -> Unit) {
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        val input = EditText(this).apply {
-            hint = "纬度,经度  例：22.5361,113.9345"
-        }
-        val group = android.widget.RadioGroup(this)
-        val labels = listOf(
-            "GPS / 本App / OSM（WGS-84）",
-            "高德 / 腾讯地图复制的（GCJ-02）",
-            "百度地图复制的（BD-09）"
-        )
-        labels.forEachIndexed { i, s ->
-            group.addView(android.widget.RadioButton(this).apply { text = s; id = i })
-        }
-        group.check(1)   // 大多数人从高德抄，默认 GCJ-02
-        val box = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, 0)
-            addView(input)
-            addView(group)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("手动输入坐标")
-            .setView(box)
-            .setPositiveButton("确定") { _, _ ->
-                val parts = input.text.toString()
-                    .replace("，", ",").replace(" ", "").split(",")
-                val lat = parts.getOrNull(0)?.toDoubleOrNull()
-                val lng = parts.getOrNull(1)?.toDoubleOrNull()
-                if (lat == null || lng == null || lat !in -90.0..90.0 || lng !in -180.0..180.0) {
-                    toast("格式不对：要「纬度,经度」两个数字")
-                    return@setPositiveButton
-                }
-                val (wLat, wLng) = when (group.checkedRadioButtonId) {
-                    1 -> CoordConv.gcjToWgs(lat, lng)
-                    2 -> CoordConv.bdToWgs(lat, lng)
-                    else -> lat to lng
-                }
-                onResult(wLat, wLng)
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun pickOnMap(lat: Double?, lng: Double?, radius: Double, onResult: (Double, Double) -> Unit) {
-        pendingPick = onResult
-        val i = android.content.Intent(this, MapPickerActivity::class.java)
-        if (lat != null && lng != null) {
-            i.putExtra("lat", lat).putExtra("lng", lng)
-        }
-        i.putExtra("radius", radius)
-        mapPicker.launch(i)
     }
 
     private fun requestOverlayPermission() {

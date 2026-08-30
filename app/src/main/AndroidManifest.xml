@@ -42,6 +42,11 @@
             android:parentActivityName=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
 
+        <activity
+            android:name=".MapPickerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
+
         <service
             android:name=".OverlayService"
             android:exported="false"

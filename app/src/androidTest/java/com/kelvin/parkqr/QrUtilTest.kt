@@ -104,3 +104,47 @@ class QrUtilTest {
         assertTrue("got $d", d in 1500.0..3500.0)
     }
 }
+
+@RunWith(AndroidJUnit4::class)
+class CoordConvTest {
+
+    /** 深圳一点：GCJ 相对 WGS 的偏移应在 100~800 米量级（中国区特征） */
+    @Test
+    fun gcjOffsetIsSane() {
+        val (gLat, gLng) = CoordConv.wgsToGcj(22.5361, 113.9345)
+        val d = Geo.distance(22.5361, 113.9345, gLat, gLng)
+        assertTrue("offset=$d", d in 100.0..800.0)
+    }
+
+    /** wgs -> gcj -> wgs 往返误差应小于 1 米 */
+    @Test
+    fun gcjRoundTrip() {
+        val (gLat, gLng) = CoordConv.wgsToGcj(22.5361, 113.9345)
+        val (wLat, wLng) = CoordConv.gcjToWgs(gLat, gLng)
+        assertTrue(Geo.distance(22.5361, 113.9345, wLat, wLng) < 1.0)
+    }
+
+    /** bd09 链路：bd -> wgs 与已知 gcj->bd 正变换互逆，误差 < 2 米 */
+    @Test
+    fun bdChain() {
+        // 用 gcj 点构造一个 bd 点（bd = gcj + 官方正变换），再走 bdToWgs 回来
+        val wgs = 22.5361 to 113.9345
+        val (gLat, gLng) = CoordConv.wgsToGcj(wgs.first, wgs.second)
+        // 官方 gcj->bd 正变换
+        val xPi = Math.PI * 3000.0 / 180.0
+        val z = Math.sqrt(gLng * gLng + gLat * gLat) + 0.00002 * Math.sin(gLat * xPi)
+        val theta = Math.atan2(gLat, gLng) + 0.000003 * Math.cos(gLng * xPi)
+        val bdLng = z * Math.cos(theta) + 0.0065
+        val bdLat = z * Math.sin(theta) + 0.006
+        val (wLat, wLng) = CoordConv.bdToWgs(bdLat, bdLng)
+        assertTrue(Geo.distance(wgs.first, wgs.second, wLat, wLng) < 2.0)
+    }
+
+    /** 国外坐标不做偏移 */
+    @Test
+    fun outOfChinaUntouched() {
+        val (lat, lng) = CoordConv.wgsToGcj(37.7749, -122.4194)
+        assertEquals(37.7749, lat, 1e-9)
+        assertEquals(-122.4194, lng, 1e-9)
+    }
+}

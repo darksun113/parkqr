@@ -13,7 +13,16 @@ object Home {
     private const val PREFS = "settings"
     private const val K_LAT = "homeLat"
     private const val K_LNG = "homeLng"
-    const val RADIUS_M = 300.0
+    private const val K_RADIUS = "homeRadius"
+    const val DEFAULT_RADIUS_M = 300
+
+    fun radius(ctx: Context): Int =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(K_RADIUS, DEFAULT_RADIUS_M)
+
+    fun setRadius(ctx: Context, m: Int) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(K_RADIUS, m.coerceIn(50, 5000)).apply()
+    }
 
     fun get(ctx: Context): Pair<Double, Double>? {
         val sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -37,6 +46,6 @@ object Home {
     fun isNear(ctx: Context): Boolean {
         val h = get(ctx) ?: return false
         val loc = Geo.lastKnown(ctx) ?: return false
-        return Geo.distance(loc.latitude, loc.longitude, h.first, h.second) <= RADIUS_M
+        return Geo.distance(loc.latitude, loc.longitude, h.first, h.second) <= radius(ctx)
     }
 }

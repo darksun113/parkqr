@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="leaflet/leaflet.css">
+<script src="leaflet/leaflet.js"></script>
+<style>
+ html,body,#map{margin:0;height:100%;background:#222}
+ .hint{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:1000;
+   background:rgba(0,0,0,.72);color:#fff;padding:6px 14px;border-radius:8px;font:14px sans-serif}
+</style></head>
+<body>
+<div id="map"></div>
+<div class="hint">点地图选位置，可拖动缩放</div>
+<script>
+// 由 MapPickerActivity 注入初始位置：window.__init = {lat, lng, radius}
+var init = window.__init || {lat: 22.543, lng: 114.058, radius: 0};
+var map = L.map('map', {zoomControl: true}).setView([init.lat, init.lng], 16);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+var marker = null, circle = null;
+function place(lat, lng) {
+  if (marker) map.removeLayer(marker);
+  if (circle) map.removeLayer(circle);
+  marker = L.circleMarker([lat, lng], {radius: 9, color: '#2f6fed', fillColor: '#2f6fed',
+    fillOpacity: 0.9}).addTo(map);
+  if (init.radius > 0) {
+    circle = L.circle([lat, lng], {radius: init.radius, color: '#2f6fed', weight: 1.5,
+      fillOpacity: 0.12}).addTo(map);
+  }
+  if (window.Bridge) Bridge.onPick(lat, lng);
+}
+if (init.marked) place(init.lat, init.lng);
+map.on('click', function(e) { place(e.latlng.lat, e.latlng.lng); });
+</script>
+</body></html>

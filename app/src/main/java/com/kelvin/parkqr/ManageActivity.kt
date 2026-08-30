@@ -18,6 +18,17 @@ import androidx.recyclerview.widget.RecyclerView
 class ManageActivity : AppCompatActivity() {
 
     private lateinit var store: LotStore
+    /** 地图选点回调：MapPicker 是独立 Activity，结果回来时对话框还开着，走这个回调把坐标塞回去 */
+    private var pendingPick: ((Double, Double) -> Unit)? = null
+    private val mapPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { r ->
+        val d = r.data
+        if (r.resultCode == RESULT_OK && d != null) {
+            pendingPick?.invoke(d.getDoubleExtra("lat", 0.0), d.getDoubleExtra("lng", 0.0))
+        }
+        pendingPick = null
+    }
     private lateinit var list: RecyclerView
     private lateinit var emptyHint: TextView
     private val adapter = Adapter()
@@ -62,36 +73,81 @@ class ManageActivity : AppCompatActivity() {
         val btnHome = findViewById<Button>(R.id.btnHome)
         fun renderHome() {
             btnHome.text = if (Home.get(this) != null) {
-                "家：已设定（附近 ${Home.RADIUS_M.toInt()} 米开机不弹码）"
+                "家：已设定（${Home.radius(this)} 米内开机不弹）"
             } else {
                 "家：未设定"
             }
         }
         renderHome()
         btnHome.setOnClickListener {
+            val pad = (20 * resources.displayMetrics.density).toInt()
             val h = Home.get(this)
-            val msg = if (h != null) {
-                "已设定：%.6f, %.6f\n在家 ${Home.RADIUS_M.toInt()} 米内，开机不弹悬浮码。".format(h.first, h.second)
-            } else {
-                "还没设定。停在家的车位上点「把这里设为家」。"
+            var stagedLat = h?.first
+            var stagedLng = h?.second
+
+            val status = TextView(this).apply { textSize = 14f }
+            fun renderStatus() {
+                status.text = if (stagedLat != null) {
+                    "家的位置：%.6f, %.6f".format(stagedLat, stagedLng)
+                } else {
+                    "还没设定家的位置"
+                }
             }
-            val b = AlertDialog.Builder(this)
-                .setTitle("家")
-                .setMessage(msg)
-                .setPositiveButton("把这里设为家") { _, _ ->
-                    Geo.requestFix(this, timeoutMs = 10_000) { loc ->
+            renderStatus()
+
+            val radiusIn = EditText(this).apply {
+                hint = "不弹码半径（米），默认 ${Home.DEFAULT_RADIUS_M}"
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                setText(Home.radius(this@ManageActivity).toString())
+            }
+            fun stageBtn(label: String, onClick: () -> Unit) = Button(this).apply {
+                text = label
+                setOnClickListener { onClick() }
+            }
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(pad, pad / 2, pad, 0)
+                addView(status)
+                addView(radiusIn)
+                addView(stageBtn("把当前位置设为家") {
+                    Geo.requestFix(this@ManageActivity, timeoutMs = 10_000) { loc ->
                         if (loc == null) {
                             toast("拿不到定位，稍后再试")
                         } else {
-                            Home.set(this, loc.latitude, loc.longitude)
-                            renderHome()
-                            toast("已把当前位置设为家（精度约 ${loc.accuracy.toInt()} m）")
+                            stagedLat = loc.latitude; stagedLng = loc.longitude
+                            renderStatus()
                         }
                     }
+                })
+                addView(stageBtn("手动输入坐标") {
+                    promptManualCoord { la, ln ->
+                        stagedLat = la; stagedLng = ln
+                        renderStatus()
+                    }
+                })
+                addView(stageBtn("地图选点") {
+                    val r = radiusIn.text.toString().toIntOrNull() ?: Home.DEFAULT_RADIUS_M
+                    pickOnMap(stagedLat, stagedLng, r.toDouble()) { la, ln ->
+                        stagedLat = la; stagedLng = ln
+                        renderStatus()
+                    }
+                })
+            }
+
+            val b = AlertDialog.Builder(this)
+                .setTitle("家（此范围内开机不弹悬浮码）")
+                .setView(android.widget.ScrollView(this).apply { addView(box) })
+                .setPositiveButton("保存") { _, _ ->
+                    Home.setRadius(this, radiusIn.text.toString().toIntOrNull() ?: Home.DEFAULT_RADIUS_M)
+                    val la = stagedLat
+                    val ln = stagedLng
+                    if (la != null && ln != null) Home.set(this, la, ln)
+                    renderHome()
+                    toast("已保存")
                 }
                 .setNegativeButton("取消", null)
             if (h != null) {
-                b.setNeutralButton("清除") { _, _ ->
+                b.setNeutralButton("清除家") { _, _ ->
                     Home.clear(this)
                     renderHome()
                     toast("已清除")
@@ -99,6 +155,29 @@ class ManageActivity : AppCompatActivity() {
             }
             b.show()
         }
+
+        findViewById<Button>(R.id.btnImport).setOnClickListener {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            val input = EditText(this).apply {
+                hint = "导入范围（公里），默认 5"
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                setText("5")
+            }
+            AlertDialog.Builder(this)
+                .setTitle("导入预设停车场（按距离筛选）")
+                .setView(LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(pad, pad / 2, pad, 0)
+                    addView(input)
+                })
+                .setPositiveButton("下载") { _, _ ->
+                    val km = input.text.toString().toDoubleOrNull() ?: 5.0
+                    PresetImporter.run(this, store, km.coerceIn(1.0, 100.0)) { reload() }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+
         reload()
     }
 
@@ -137,6 +216,20 @@ class ManageActivity : AppCompatActivity() {
             }
         }
         renderLoc()
+
+        view.findViewById<Button>(R.id.btnCoordManual).setOnClickListener {
+            promptManualCoord { la, ln ->
+                lat = la; lng = ln
+                renderLoc()
+                toast("已填入（已转 WGS-84）")
+            }
+        }
+        view.findViewById<Button>(R.id.btnCoordMap).setOnClickListener {
+            pickOnMap(lat, lng, 0.0) { la, ln ->
+                lat = la; lng = ln
+                renderLoc()
+            }
+        }
 
         btnLoc.setOnClickListener {
             btnLoc.isEnabled = false
@@ -288,6 +381,61 @@ class ManageActivity : AppCompatActivity() {
     private fun stopServer() {
         server?.stop()
         server = null
+    }
+
+    /** 手动输入坐标，支持三种来源坐标系，统一转成 WGS-84 回调。 */
+    private fun promptManualCoord(onResult: (Double, Double) -> Unit) {
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val input = EditText(this).apply {
+            hint = "纬度,经度  例：22.5361,113.9345"
+        }
+        val group = android.widget.RadioGroup(this)
+        val labels = listOf(
+            "GPS / 本App / OSM（WGS-84）",
+            "高德 / 腾讯地图复制的（GCJ-02）",
+            "百度地图复制的（BD-09）"
+        )
+        labels.forEachIndexed { i, s ->
+            group.addView(android.widget.RadioButton(this).apply { text = s; id = i })
+        }
+        group.check(1)   // 大多数人从高德抄，默认 GCJ-02
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+            addView(group)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("手动输入坐标")
+            .setView(box)
+            .setPositiveButton("确定") { _, _ ->
+                val parts = input.text.toString()
+                    .replace("，", ",").replace(" ", "").split(",")
+                val lat = parts.getOrNull(0)?.toDoubleOrNull()
+                val lng = parts.getOrNull(1)?.toDoubleOrNull()
+                if (lat == null || lng == null || lat !in -90.0..90.0 || lng !in -180.0..180.0) {
+                    toast("格式不对：要「纬度,经度」两个数字")
+                    return@setPositiveButton
+                }
+                val (wLat, wLng) = when (group.checkedRadioButtonId) {
+                    1 -> CoordConv.gcjToWgs(lat, lng)
+                    2 -> CoordConv.bdToWgs(lat, lng)
+                    else -> lat to lng
+                }
+                onResult(wLat, wLng)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun pickOnMap(lat: Double?, lng: Double?, radius: Double, onResult: (Double, Double) -> Unit) {
+        pendingPick = onResult
+        val i = android.content.Intent(this, MapPickerActivity::class.java)
+        if (lat != null && lng != null) {
+            i.putExtra("lat", lat).putExtra("lng", lng)
+        }
+        i.putExtra("radius", radius)
+        mapPicker.launch(i)
     }
 
     private fun requestOverlayPermission() {

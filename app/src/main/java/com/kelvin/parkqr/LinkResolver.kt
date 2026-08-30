@@ -40,9 +40,15 @@ object LinkResolver {
             } else {
                 body = runCatching {
                     conn.inputStream.bufferedReader().use { r ->
-                        val buf = CharArray(200_000)
-                        val n = r.read(buf)
-                        if (n > 0) String(buf, 0, n) else ""
+                        // read() 单次可能只返回一段，循环读满上限
+                        val sb = StringBuilder()
+                        val buf = CharArray(16_384)
+                        while (sb.length < 300_000) {
+                            val n = r.read(buf)
+                            if (n <= 0) break
+                            sb.append(buf, 0, n)
+                        }
+                        sb.toString()
                     }
                 }.getOrNull()
                 break
@@ -55,29 +61,59 @@ object LinkResolver {
     }
 
     /** 从一段文本中抽出第一对可信坐标并转 WGS-84。isBaidu 决定坐标系。 */
-    fun extract(s: String, isBaidu: Boolean): Pair<Double, Double>? {
-        // 1) 高德/腾讯惯用 position=lng,lat 或 coord=lat,lng 之类的显式参数
+    fun extract(raw: String, isBaidu: Boolean): Pair<Double, Double>? {
+        // 高德的重定向 URL 把逗号编码成 %2C（如 p=POIID%2C22.55%2C113.90%2C名称），先解回来
+        val s = raw.replace("%2C", ",", ignoreCase = true).replace("%2c", ",")
+        // 百度页面壳里带一个全国默认中心（≈104,37 经纬度），会污染通用规则；
+        // 而真正的 POI 坐标是墨卡托米制 —— 百度域名必须先走墨卡托模式。
+        if (isBaidu) {
+            // 渲染后的页面里坐标常拆成 "x":12680841.16,"y":2563119.75 —— 去掉字段胶水再配对
+            val norm = s.replace(Regex("""\\?"[xy]\\?"\s*:\s*"""), "")
+            Regex("""(1[0-9]{7}(?:\.[0-9]+)?),([2-9][0-9]{5,6}(?:\.[0-9]+)?)""")
+                .find(norm)?.let { m ->
+                    val (llng, llat) = mcToLl(m.groupValues[1].toDouble(), m.groupValues[2].toDouble())
+                        ?: return@let
+                    val r = CoordConv.bdToWgs(llat, llng)
+                    if (!isDefaultCenter(r.first, r.second)) return r
+                }
+        }
+        // 高德/腾讯惯用 position=lng,lat 或 coord=lat,lng 之类的显式参数
         Regex("""(?:position|location|coords?|latlng|center|marker)=([0-9]{1,3}\.[0-9]{3,}(?:%2C|,)[0-9]{1,3}\.[0-9]{3,})""", RegexOption.IGNORE_CASE)
             .findAll(s).forEach { m ->
                 val parts = m.groupValues[1].replace("%2C", ",").split(",")
                 plausiblePair(parts[0].toDouble(), parts[1].toDouble())?.let {
-                    return convert(it, isBaidu)
+                    val r = convert(it, isBaidu)
+                    if (!isDefaultCenter(r.first, r.second)) return r
                 }
             }
-        // 2) 百度墨卡托米制（7~9 位整数对）
-        if (isBaidu) {
-            Regex("""(1[0-9]{7}(?:\.[0-9]+)?),([2-9][0-9]{5,6}(?:\.[0-9]+)?)""")
-                .find(s)?.let { m ->
-                    val (llng, llat) = mcToLl(m.groupValues[1].toDouble(), m.groupValues[2].toDouble())
-                        ?: return@let
-                    return CoordConv.bdToWgs(llat, llng)
+        // 2.5) 键值对形式：渲染后的页面常见 \"loc\":{\"lng\":113.91,\"lat\":22.56}
+        //      （转义引号是胶水），剥掉引号和反斜杠后按 lng/lat 键名配对
+        run {
+            val clean = s.replace("\\", "").replace("\"", "")
+            val pats = listOf(
+                Regex("""lng:([0-9]{1,3}\.[0-9]{3,}),\s*lat:([0-9]{1,3}\.[0-9]{3,})""") to false,
+                Regex("""lat:([0-9]{1,3}\.[0-9]{3,}),\s*lng:([0-9]{1,3}\.[0-9]{3,})""") to true
+            )
+            for ((re, latFirst) in pats) {
+                re.findAll(clean).forEach { m ->
+                    val a = m.groupValues[1].toDouble()
+                    val b = m.groupValues[2].toDouble()
+                    val pair = if (latFirst) plausiblePair(b, a)?.let { a to b }
+                    else plausiblePair(a, b)
+                    pair?.let {
+                        val r = convert(it, isBaidu)
+                        if (!isDefaultCenter(r.first, r.second)) return r
+                    }
                 }
+            }
         }
+
         // 3) 兜底：任何"看起来像中国经纬度"的相邻数对
         Regex("""([0-9]{1,3}\.[0-9]{4,})\s*[,，]\s*([0-9]{1,3}\.[0-9]{4,})""")
             .findAll(s).forEach { m ->
                 plausiblePair(m.groupValues[1].toDouble(), m.groupValues[2].toDouble())?.let {
-                    return convert(it, isBaidu)
+                    val r = convert(it, isBaidu)
+                    if (!isDefaultCenter(r.first, r.second)) return r
                 }
             }
         return null
@@ -93,6 +129,13 @@ object LinkResolver {
     private fun convert(latLng: Pair<Double, Double>, isBaidu: Boolean): Pair<Double, Double> =
         if (isBaidu) CoordConv.bdToWgs(latLng.first, latLng.second)
         else CoordConv.gcjToWgs(latLng.first, latLng.second)
+
+    /**
+     * 百度页面壳在拿不到 POI 数据时会填一个"全国默认中心"（≈37.55N,104.11E，
+     * 腾格里沙漠里）——那里没有停车场，出现即视为无效。
+     */
+    fun isDefaultCenter(lat: Double, lng: Double): Boolean =
+        abs(lat - 37.55) < 1.0 && abs(lng - 104.11) < 1.0
 
     // ---- 百度墨卡托(BD09MC) -> 经纬度(BD09LL)，标准分段多项式 ----
 

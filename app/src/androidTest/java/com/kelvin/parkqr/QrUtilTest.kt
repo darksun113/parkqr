@@ -178,6 +178,33 @@ class LinkResolverTest {
         assertTrue("got $ll", ll!!.first in 113.0..115.0 && ll.second in 22.0..23.5)
     }
 
+    /** 百度页面壳自带全国默认中心(≈104,37)，不能盖过真正的 POI 墨卡托坐标 */
+    @Test
+    fun baiduDefaultCenterDoesNotWin() {
+        val body = """{"center":"104.114129,37.550339","shell":1}
+            ..."geo":"1|12680841.16,2563119.75|..."""
+        val r = LinkResolver.extract(body, isBaidu = true)!!
+        // 应落在深圳宝安（海雅缤纷城），绝不能是 37,104
+        assertTrue("got $r", r.first in 22.0..23.0 && r.second in 113.0..115.0)
+    }
+
+    /** 渲染后的百度页面：转义引号包裹的 lng/lat 键值对（来自真实 DOM 的形态） */
+    @Test
+    fun baiduEscapedKvPair() {
+        val body = """...\",\"loc\":{\"lng\":113.912695,\"lat\":22.566391}},\"rich_info\"..."""
+        val r = LinkResolver.extract(body, isBaidu = true)!!
+        // BD09 -> WGS 后应落在宝安海雅缤纷城附近
+        assertTrue("got $r", Geo.distance(22.5634, 113.9013, r.first, r.second) < 100.0)
+    }
+
+    /** 高德重定向 URL 的 %2C 编码逗号（真实短链格式 p=POIID%2Clat%2Clng%2C名称） */
+    @Test
+    fun amapPercentEncodedComma() {
+        val url = "https://wb.amap.com/?p=B0G0R7CLPY%2C22.558504070334248%2C113.9060354232788%2C某停车场"
+        val r = LinkResolver.extract(url, isBaidu = false)!!
+        assertTrue("got $r", Geo.distance(22.5616, 113.9012, r.first, r.second) < 200.0)
+    }
+
     /** 无坐标的文本返回 null */
     @Test
     fun noCoordReturnsNull() {

@@ -139,7 +139,7 @@ class UploadServer(
         var locMsg = ""
         if (locRaw.isNotBlank()) {
             val r = if (locRaw.contains("http")) {
-                LinkResolver.resolve(locRaw)
+                WebResolver.resolveSmart(ctx, locRaw)
             } else {
                 val parts = locRaw.replace("，", ",").replace(" ", "").split(",")
                 val a = parts.getOrNull(0)?.toDoubleOrNull()

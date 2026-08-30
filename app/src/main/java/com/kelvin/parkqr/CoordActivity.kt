@@ -66,7 +66,7 @@ abstract class CoordActivity : AppCompatActivity() {
                 if (raw.contains("http")) {
                     Toast.makeText(this, "正在解析链接…", Toast.LENGTH_SHORT).show()
                     kotlin.concurrent.thread {
-                        val r = LinkResolver.resolve(raw)
+                        val r = WebResolver.resolveSmart(this, raw)
                         runOnUiThread {
                             if (r == null) {
                                 Toast.makeText(this, "解析不出坐标：检查网络，或换「地图选点」", Toast.LENGTH_LONG).show()

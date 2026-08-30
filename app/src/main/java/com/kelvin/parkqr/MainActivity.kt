@@ -139,10 +139,19 @@ class MainActivity : CoordActivity() {
 
     private fun refresh() {
         ranked = Candidates.ranked(this, store)
-        // 优先选"最近且已经有码"的；一个有码的都没有就退回第一个。
-        // 若之前手动选过且还在列表里，尊重手动选择。
+        // 选择规则（按优先级）：
+        //  1. 手动选过且还在列表里 -> 尊重手动选择
+        //  2. 800 米内有最近的场 -> 就是它，哪怕没码（这时界面会点名引导传码，
+        //     比显示一个远处/无坐标场的码有用得多——否则会出现"人在 A 场，
+        //     屏上却是上次那个无坐标场"的错乱）
+        //  3. 否则取最近的有码场；一个有码的都没有就退回第一个
         val keep = current?.let { c -> ranked.firstOrNull { it.first.id == c.id } }
-        val pick = keep ?: ranked.firstOrNull { it.first.hasCode } ?: ranked.firstOrNull()
+        val nearest = ranked.firstOrNull()
+        val pick = when {
+            keep != null -> keep
+            nearest?.second != null && nearest.second!! < NEARBY_M -> nearest
+            else -> ranked.firstOrNull { it.first.hasCode } ?: nearest
+        }
         current = pick?.first
         render()
     }
@@ -168,7 +177,7 @@ class MainActivity : CoordActivity() {
         // 离得最近的那个场若还没码（多半是导入的预设），提醒补一下 ——
         // 否则用户看到的是"次近的有码场"，容易没意识到脚下这个场还缺码
         val nearestNoCode = ranked.firstOrNull()?.takeIf { (l, d) ->
-            !l.hasCode && l.id != lot.id && d != null && d < 300.0
+            !l.hasCode && l.id != lot.id && d != null && d < NEARBY_M
         }
         lotMeta.text = buildString {
             append(if (dist != null) "距离约 ${Geo.format(dist)}" else "无坐标")
@@ -354,5 +363,10 @@ class MainActivity : CoordActivity() {
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        /** "人就在这个场"的判定半径（米）——GPS 城市峡谷里飘一两百米很常见 */
+        const val NEARBY_M = 800.0
+    }
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 }

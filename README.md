@@ -83,6 +83,46 @@
 - **设定家**：「管理」→「家」，停在家的车位上一键记录；此后车机在家 300 米内启动
   不再弹悬浮码（自家车位不用缴费）。拿不到定位时宁可弹（不会在真停车场漏弹）。
 
+## v1.3.0 新增
+
+- **坐标三种录入**：现场记录 / **手动输入**（支持 WGS-84、高德腾讯 GCJ-02、百度 BD-09，
+  自动换算）/ **地图选点**（内置 Leaflet + OpenStreetMap，免费无 key；OSM 即 WGS-84，
+  点哪是哪；设家时会画出半径圈）。停车场和家都适用。
+- **家半径可调**：默认 300 米，「管理」→「家」里改。
+- **导入城市预设**：「管理」→「导入预设」，按当前位置 N 公里筛选下载合并（60 米内同名去重）。
+
+## 预设数据格式（欢迎 PR 你所在城市）
+
+文件放在 `presets/<city>.json`：
+
+```json
+{
+  "city": "深圳",
+  "coord": "wgs84",
+  "source": "数据来源说明",
+  "license": "许可（如 ODbL — © OpenStreetMap contributors）",
+  "lots": [
+    { "name": "某某停车场", "lat": 22.5361, "lng": 113.9345, "note": "地下 收费" }
+  ]
+}
+```
+
+- `coord` 声明坐标系：`wgs84` / `gcj02`（高德、腾讯）/ `bd09`（百度），App 导入时自动转 WGS-84
+- `note` 可选；不含缴费码（码因场而异，到场后用手机传码补）
+
+从 OpenStreetMap 生成任意城市数据（把城市名换掉即可）：
+
+```
+[out:json][timeout:90];
+area["name"="深圳市"]["boundary"="administrative"]->.a;
+nwr["amenity"="parking"]["name"](area.a);
+out center 8000;
+```
+
+POST 到 `https://overpass-api.de/api/interpreter`，把结果转成上面的格式
+（OSM 坐标就是 WGS-84）。`presets/shenzhen.json`（157 个）即由此生成，
+数据 © OpenStreetMap contributors, ODbL。
+
 ## 已知边界
 
 - 打开 App 时若从没拿到过定位，会先显示"无坐标"，等 GPS 定上后重进一次即可。

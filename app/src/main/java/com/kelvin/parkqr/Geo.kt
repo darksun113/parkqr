@@ -115,16 +115,24 @@ object Geo {
      * App 在前台时持续记录定位，把最新的落盘。返回一个用于停止的句柄。
      * 这就是"进地库前最后一个有效点"的来源。
      */
+    /**
+     * @param onFix 每次拿到新定位时回调（主线程）。界面必须靠它重绘，
+     *              否则只缓存不刷新 —— 用户会看到距离永远不变。
+     */
     fun startTracking(
         ctx: Context,
         minTimeMs: Long = 2000L,
-        minDistanceM: Float = 5f
+        minDistanceM: Float = 5f,
+        onFix: ((Location) -> Unit)? = null
     ): AutoCloseable {
         val m = lm(ctx)
         if (!hasPermission(ctx) || m == null) return AutoCloseable { }
 
         val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) = cacheFix(ctx, location)
+            override fun onLocationChanged(location: Location) {
+                cacheFix(ctx, location)
+                onFix?.invoke(location)
+            }
             @Deprecated("required by the old LocationListener interface")
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
             override fun onProviderEnabled(provider: String) = Unit

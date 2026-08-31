@@ -42,6 +42,10 @@ class MainActivity : CoordActivity() {
     private var tracking: AutoCloseable? = null
     /** 用户手动点过候选/切换：在自动重算时保住这个选择，直到「刷新定位」 */
     private var manualPick = false
+    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var ticker: Runnable? = null
+    /** 已画在屏幕上的码，用来避免每次刷新都重绘二维码（扫码时会闪） */
+    private var drawnKey: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -127,15 +131,24 @@ class MainActivity : CoordActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 后台前台台都记录：前台自己开一路高频的，后台交给 LocationService
-        tracking = Geo.startTracking(this)
+        // 前台开一路高频的，新定位到手立刻重算距离并重选最近的场；
+        // 后台交给 LocationService。另加一路定时兜底，防止 provider 长时间不回调。
+        tracking = Geo.startTracking(this, onFix = { refresh() })
         LocationService.start(this)
+        ticker = object : Runnable {
+            override fun run() {
+                refresh()
+                uiHandler.postDelayed(this, TICK_MS)
+            }
+        }.also { uiHandler.postDelayed(it, TICK_MS) }
         refresh()
     }
 
     override fun onPause() {
         tracking?.let { runCatching { it.close() } }
         tracking = null
+        ticker?.let { uiHandler.removeCallbacks(it) }
+        ticker = null
         super.onPause()
     }
 
@@ -167,7 +180,7 @@ class MainActivity : CoordActivity() {
             qrCard.visibility = View.GONE
             // 车牌是全局的，没有停车场也照常显示
             plateRow.visibility = View.VISIBLE
-            plate.text = plates.selected() ?: "未设置"
+            PlateStyle.apply(plate, plates.selected())
             lotName.text = "—"
             lotMeta.text = ""
             return
@@ -175,20 +188,13 @@ class MainActivity : CoordActivity() {
 
         plateRow.visibility = View.VISIBLE
         lotName.text = lot.name
-        plate.text = plates.selected() ?: "未设置"
+        PlateStyle.apply(plate, plates.selected())
 
         val dist = ranked.firstOrNull { it.first.id == lot.id }?.second
-        // 离得最近的那个场若还没码（多半是导入的预设），提醒补一下 ——
-        // 否则用户看到的是"次近的有码场"，容易没意识到脚下这个场还缺码
-        val nearestNoCode = ranked.firstOrNull()?.takeIf { (l, d) ->
-            !l.hasCode && l.id != lot.id && d != null && d < NEARBY_M
-        }
+        // 现在永远选中最近的场，"次近有码场"那套提示已无意义（选中的就是最近的）
         lotMeta.text = buildString {
             append(if (dist != null) "距离约 ${Geo.format(dist)}" else "无坐标")
             if (lot.note.isNotBlank()) append("  ·  ${lot.note}")
-            nearestNoCode?.let { (l, _) ->
-                append("\n▲ 脚下的「${l.name}」还没码，管理→手机传码可补")
-            }
         }
 
         if (!lot.hasCode) {
@@ -277,6 +283,10 @@ class MainActivity : CoordActivity() {
     private fun drawCode(lot: Lot) {
         val side = minOf(qrHolder.width, qrHolder.height)
         if (side <= 0) return
+        // 内容没变就别重画：定时刷新时反复重绘会让正在扫的码闪烁
+        val key = "${lot.id}|${lot.payload ?: lot.imageFile}|$side"
+        if (key == drawnKey) return
+        drawnKey = key
         qrCard.layoutParams = (qrCard.layoutParams as FrameLayout.LayoutParams).apply {
             width = side
             height = side
@@ -386,8 +396,8 @@ class MainActivity : CoordActivity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private companion object {
-        /** "人就在这个场"的判定半径（米）——GPS 城市峡谷里飘一两百米很常见 */
-        const val NEARBY_M = 800.0
+        /** 定时兜底刷新间隔：provider 不回调时也能更新距离 */
+        const val TICK_MS = 15_000L
     }
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 }

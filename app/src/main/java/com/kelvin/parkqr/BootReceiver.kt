@@ -24,6 +24,9 @@ class BootReceiver : BroadcastReceiver() {
             .putString("lastBootAction", action)
             .apply()
 
+        // 后台定位独立于悬浮窗：开机就开始记录，好让进地库前的最后一点被抓到
+        LocationService.start(context)
+
         fun skip(why: String) {
             sp.edit().putString("lastBootResult", why).apply()
         }

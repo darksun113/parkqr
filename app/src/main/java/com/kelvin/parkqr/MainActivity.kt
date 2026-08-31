@@ -40,6 +40,8 @@ class MainActivity : CoordActivity() {
     private var ranked: List<Pair<Lot, Double?>> = emptyList()
     private var current: Lot? = null
     private var tracking: AutoCloseable? = null
+    /** 用户手动点过候选/切换：在自动重算时保住这个选择，直到「刷新定位」 */
+    private var manualPick = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,7 +79,8 @@ class MainActivity : CoordActivity() {
                 val fresh = loc != null &&
                     System.currentTimeMillis() - loc.time < 2 * 60_000
                 if (fresh && loc != null) {
-                    current = null   // 清掉手动选择，按新位置重新匹配最近的
+                    current = null           // 清掉手动选择，按新位置重新匹配最近的
+                    manualPick = false
                     refresh()
                     toast("已定位（精度约 ${loc.accuracy.toInt()} m），已匹配最近停车场")
                 } else {
@@ -101,6 +104,11 @@ class MainActivity : CoordActivity() {
             startActivity(Intent(this, ManageActivity::class.java))
         }
         plateRow.setOnClickListener { showPlateDialog() }
+        // 空状态区域整块可点：没码时直接进传码，省去"管理→手机传码→翻列表"
+        emptyHint.setOnClickListener {
+            val lot = current
+            if (lot == null) toast("先在「管理」里添加停车场") else promptUpload(lot)
+        }
 
         // 车机屏幕通常偏暗，扫码时把亮度拉满，并且别息屏。
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -119,8 +127,9 @@ class MainActivity : CoordActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 前台就一直记录定位，把最新的落盘 —— 进地库后拿到的就是入口前那个点
+        // 后台前台台都记录：前台自己开一路高频的，后台交给 LocationService
         tracking = Geo.startTracking(this)
+        LocationService.start(this)
         refresh()
     }
 
@@ -139,20 +148,15 @@ class MainActivity : CoordActivity() {
 
     private fun refresh() {
         ranked = Candidates.ranked(this, store)
-        // 选择规则（按优先级）：
-        //  1. 手动选过且还在列表里 -> 尊重手动选择
-        //  2. 800 米内有最近的场 -> 就是它，哪怕没码（这时界面会点名引导传码，
-        //     比显示一个远处/无坐标场的码有用得多——否则会出现"人在 A 场，
-        //     屏上却是上次那个无坐标场"的错乱）
-        //  3. 否则取最近的有码场；一个有码的都没有就退回第一个
-        val keep = current?.let { c -> ranked.firstOrNull { it.first.id == c.id } }
-        val nearest = ranked.firstOrNull()
-        val pick = when {
-            keep != null -> keep
-            nearest?.second != null && nearest.second!! < NEARBY_M -> nearest
-            else -> ranked.firstOrNull { it.first.hasCode } ?: nearest
-        }
-        current = pick?.first
+        // 永远距离优先：不因为"有没有码"而跳过更近的场。
+        // 之前偏袒有码场，导致开出 800 米后跳到 3.6 km 外那个有码的，
+        // 而脚下最近的没码场反而不显示。
+        // 只有用户在这次会话里手动点过候选/切换，才尊重那个选择
+        // （「刷新定位」会把它清掉，重新按距离算）。
+        val keep = if (manualPick) {
+            current?.let { c -> ranked.firstOrNull { it.first.id == c.id } }
+        } else null
+        current = (keep ?: ranked.firstOrNull())?.first
         render()
     }
 
@@ -189,8 +193,9 @@ class MainActivity : CoordActivity() {
 
         if (!lot.hasCode) {
             emptyHint.visibility = View.VISIBLE
-            emptyHint.text = "「${lot.name}」还没有缴费码\n\n点右上角「管理」→「手机传码」"
+            emptyHint.text = "「${lot.name}」还没有缴费码\n\n点这里用手机传码 / 设置位置"
             qrCard.visibility = View.GONE
+            renderCandidates()
             return
         }
 
@@ -208,7 +213,8 @@ class MainActivity : CoordActivity() {
     private fun renderCandidates() {
         val row = findViewById<LinearLayout>(R.id.candRow)
         row.removeAllViews()
-        val top = ranked.filter { it.first.hasCode }.take(3)
+        // 距离优先：有码没码都摆出来，没码的点了直接进传码流程
+        val top = ranked.take(3)
         // 只有一个候选没什么可选的，藏起来省屏幕
         if (top.size < 2) {
             row.visibility = View.GONE
@@ -227,8 +233,14 @@ class MainActivity : CoordActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     .apply { marginEnd = dp(8) }
                 setOnClickListener {
-                    current = lot
-                    render()
+                    if (lot.hasCode) {
+                        current = lot
+                        manualPick = true
+                        render()
+                    } else {
+                        // 没码的候选：点了就直接去传码，别让人白点
+                        promptUpload(lot)
+                    }
                 }
             }
             val thumb = ImageView(this).apply {
@@ -237,7 +249,7 @@ class MainActivity : CoordActivity() {
                 setPadding(pad, pad, pad, pad)
                 val bmp = lot.payload?.let { runCatching { QrUtil.encode(it, dp(96)) }.getOrNull() }
                     ?: lot.imageFile?.let { store.readImage(it) }
-                setImageBitmap(bmp)
+                if (bmp != null) setImageBitmap(bmp) else setImageResource(R.drawable.ic_add_code)
                 layoutParams = LinearLayout.LayoutParams(dp(96), dp(96))
             }
             val label = TextView(this).apply {
@@ -249,8 +261,11 @@ class MainActivity : CoordActivity() {
                 gravity = android.view.Gravity.CENTER
             }
             val sub = TextView(this).apply {
-                text = dist?.let { Geo.format(it) } ?: "无坐标"
-                setTextColor(getColor(R.color.text_dim))
+                text = buildString {
+                    append(dist?.let { Geo.format(it) } ?: "无坐标")
+                    if (!lot.hasCode) append("  ▲缺码")
+                }
+                setTextColor(getColor(if (lot.hasCode) R.color.text_dim else R.color.accent))
                 textSize = 11f
                 gravity = android.view.Gravity.CENTER
             }
@@ -296,6 +311,7 @@ class MainActivity : CoordActivity() {
             .setTitle("选择停车场（按距离）")
             .setItems(labels) { _, i ->
                 current = ranked[i].first
+                manualPick = true
                 render()
             }
             .setNegativeButton("取消", null)
@@ -360,6 +376,11 @@ class MainActivity : CoordActivity() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("车牌", p))
         toast("已复制 $p")
+    }
+
+    /** 直接为某个场打开手机传码（自动预选它） */
+    private fun promptUpload(lot: Lot) {
+        TransferDialog.show(this, store, lot.id) { refresh() }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

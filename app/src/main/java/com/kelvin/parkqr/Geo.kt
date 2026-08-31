@@ -115,7 +115,11 @@ object Geo {
      * App 在前台时持续记录定位，把最新的落盘。返回一个用于停止的句柄。
      * 这就是"进地库前最后一个有效点"的来源。
      */
-    fun startTracking(ctx: Context): AutoCloseable {
+    fun startTracking(
+        ctx: Context,
+        minTimeMs: Long = 2000L,
+        minDistanceM: Float = 5f
+    ): AutoCloseable {
         val m = lm(ctx)
         if (!hasPermission(ctx) || m == null) return AutoCloseable { }
 
@@ -127,7 +131,9 @@ object Geo {
             override fun onProviderDisabled(provider: String) = Unit
         }
         for (p in providers(ctx)) {
-            runCatching { m.requestLocationUpdates(p, 2000L, 5f, listener, Looper.getMainLooper()) }
+            runCatching {
+                m.requestLocationUpdates(p, minTimeMs, minDistanceM, listener, Looper.getMainLooper())
+            }
         }
         return AutoCloseable { runCatching { m.removeUpdates(listener) } }
     }

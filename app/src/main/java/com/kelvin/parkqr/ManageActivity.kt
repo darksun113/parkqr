@@ -57,6 +57,21 @@ class ManageActivity : CoordActivity() {
             if (now && !android.provider.Settings.canDrawOverlays(this)) requestOverlayPermission()
         }
         findViewById<Button>(R.id.btnBootDiag).setOnClickListener { showBootDiagnostics() }
+
+        val btnBg = findViewById<Button>(R.id.btnBgLocation)
+        fun renderBg() {
+            btnBg.text = if (LocationService.isEnabled(this)) "后台定位：开" else "后台定位：关"
+        }
+        renderBg()
+        btnBg.setOnClickListener {
+            LocationService.setEnabled(this, !LocationService.isEnabled(this))
+            renderBg()
+            toast(
+                if (LocationService.isEnabled(this))
+                    "已开启：每分钟记录一次位置，进地库后仍能匹配到正确的场"
+                else "已关闭：进地库后可能匹配不到停车场"
+            )
+        }
         findViewById<Button>(R.id.btnTestOverlay).setOnClickListener {
             if (!android.provider.Settings.canDrawOverlays(this)) {
                 requestOverlayPermission()
@@ -250,6 +265,11 @@ class ManageActivity : CoordActivity() {
                 "已设定，${Home.radius(this@ManageActivity)} m 内开机不弹"
             } ?: "未设定"))
             appendLine("电池优化：" + if (ignoringBattery) "已豁免" else "未豁免（可能被杀）")
+            appendLine("后台定位：" + if (LocationService.isEnabled(this@ManageActivity)) "开" else "关 ✗")
+            val fix = Geo.cachedFix(this@ManageActivity)
+            appendLine("最后记录的位置：" + (fix?.let {
+                "%s（%.5f, %.5f）".format(fmt.format(java.util.Date(it.time)), it.latitude, it.longitude)
+            } ?: "无"))
             appendLine()
             if (last == 0L) {
                 appendLine("⚠ 从没收到过开机广播。")

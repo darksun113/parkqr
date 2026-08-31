@@ -46,6 +46,8 @@ class MainActivity : CoordActivity() {
     private var ticker: Runnable? = null
     /** 已画在屏幕上的码，用来避免每次刷新都重绘二维码（扫码时会闪） */
     private var drawnKey: String? = null
+    /** 开机自启进来的：等用户离开本界面时再浮出候选码 */
+    private var overlayPendingOnLeave = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -118,6 +120,11 @@ class MainActivity : CoordActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.attributes = window.attributes.apply { screenBrightness = 1f }
 
+        // ROM 的「开机应用自动启动」不发广播，只把 App 启起来 —— 在这里识别。
+        // App 此刻就在前台展示大码，没必要再压一层悬浮窗；等用户切去导航时再弹。
+        overlayPendingOnLeave = BootLaunch.check(this)
+        Keepalive.schedule(this)
+
         UpdateChecker.check(this, manual = false)
 
         if (!Geo.hasPermission(this)) {
@@ -149,6 +156,10 @@ class MainActivity : CoordActivity() {
         tracking = null
         ticker?.let { uiHandler.removeCallbacks(it) }
         ticker = null
+        if (overlayPendingOnLeave) {
+            overlayPendingOnLeave = false
+            OverlayService.start(this)
+        }
         super.onPause()
     }
 

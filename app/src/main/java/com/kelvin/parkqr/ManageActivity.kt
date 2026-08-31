@@ -268,17 +268,26 @@ class ManageActivity : CoordActivity() {
             appendLine("后台定位：" + if (LocationService.isEnabled(this@ManageActivity)) "开" else "关 ✗")
             val fix = Geo.cachedFix(this@ManageActivity)
             appendLine("最后记录的位置：" + (fix?.let {
-                "%s（%.5f, %.5f）".format(fmt.format(java.util.Date(it.time)), it.latitude, it.longitude)
+                val ageMin = (System.currentTimeMillis() - it.time) / 60_000
+                val stale = if (ageMin > 30) "  ✗ 已停更 ${ageMin / 60} 小时${ageMin % 60} 分" else ""
+                "%s（%.5f, %.5f）%s".format(fmt.format(java.util.Date(it.time)), it.latitude, it.longitude, stale)
             } ?: "无"))
+            appendLine("开机后已运行：${android.os.SystemClock.elapsedRealtime() / 60_000} 分钟")
             appendLine()
             if (last == 0L) {
-                appendLine("⚠ 从没收到过开机广播。")
-                appendLine("车机 ROM 多半有「自启动管理」白名单，需要到系统设置里")
-                appendLine("允许本应用自启动；部分 ROM 还要求应用至少被打开过一次。")
+                appendLine("⚠ 从没走通过开机流程。")
+                appendLine("很多车机 ROM 不发开机广播，只提供「开机应用自动启动」列表。")
+                appendLine("请到 系统设置 → 开机应用自动启动，勾选「停车缴费码」，")
+                appendLine("本应用会识别这种启动方式并照常工作。")
             } else {
-                appendLine("上次开机广播：${fmt.format(java.util.Date(last))}")
-                appendLine("　来源：${sp.getString("lastBootAction", "-")}")
+                appendLine("上次开机处理：${fmt.format(java.util.Date(last))}")
+                appendLine("　方式：${sp.getString("lastBootAction", "-")}")
                 appendLine("　结果：${sp.getString("lastBootResult", "-")}")
+            }
+            if (!ignoringBattery) {
+                appendLine()
+                appendLine("⚠ 电池优化未豁免时，车机可能把后台定位服务杀掉")
+                appendLine("（曾观察到定位停更 9 小时）。建议点下方按钮豁免。")
             }
         }
         AlertDialog.Builder(this)

@@ -71,6 +71,14 @@
         </service>
 
         <receiver
+            android:name=".Keepalive"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kelvin.parkqr.KEEPALIVE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".BootReceiver"
             android:exported="true"
             android:directBootAware="true">

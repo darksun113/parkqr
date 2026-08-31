@@ -211,3 +211,53 @@ class LinkResolverTest {
         assertTrue(LinkResolver.extract("https://surl.amap.com/abc 快来停车", false) == null)
     }
 }
+
+@RunWith(AndroidJUnit4::class)
+class PlateStyleTest {
+
+    private fun tv(): android.widget.TextView =
+        android.widget.TextView(InstrumentationRegistry.getInstrumentation().targetContext)
+
+    /** 中文省份简称是单个 BMP 字符，长度判断不能被它坑到 */
+    @Test
+    fun chinesePlateLength() {
+        assertEquals(7, "粤B12345".length)
+        assertEquals(8, "粤BD12345".length)
+    }
+
+    /** 普通蓝牌：省+字母后 5 位，圆点插在第 2 个字符后，省份原样保留 */
+    @Test
+    fun bluePlateFormatting() {
+        val t = tv()
+        PlateStyle.apply(t, "粤B12345")
+        assertEquals("粤B·12345", t.text.toString())
+        assertEquals(android.graphics.Color.WHITE, t.currentTextColor)
+        assertTrue(t.background is android.graphics.drawable.GradientDrawable)
+    }
+
+    /** 新能源绿牌：省+字母后 6 位，深色字 */
+    @Test
+    fun greenPlateFormatting() {
+        val t = tv()
+        PlateStyle.apply(t, "粤BD12345")
+        assertEquals("粤B·D12345", t.text.toString())
+        assertTrue("应为深色字", t.currentTextColor != android.graphics.Color.WHITE)
+    }
+
+    /** 小写与空格要归一化，省份不受影响 */
+    @Test
+    fun normalizesInput() {
+        val t = tv()
+        PlateStyle.apply(t, " 粤b12345 ")
+        assertEquals("粤B·12345", t.text.toString())
+    }
+
+    /** 未设置时不画牌照 */
+    @Test
+    fun emptyPlateHasNoBackground() {
+        val t = tv()
+        PlateStyle.apply(t, null)
+        assertEquals("未设置", t.text.toString())
+        assertTrue(t.background == null)
+    }
+}

@@ -116,7 +116,14 @@ class UploadServer(
         val pasted = decodeB64(params["payloadB64"]?.firstOrNull()).trim()
         val locRaw = decodeB64(params["locB64"]?.firstOrNull()).trim()
         val tmpPath = files["photo"]
-        val bytes = tmpPath?.let { runCatching { File(it).readBytes() }.getOrNull() }
+        // 裁剪过的图优先：小程序码只能存原图，框干净了车机上才扫得出；
+        // 而且裁掉背景后，原本解不出的标准 QR 也可能变得能解
+        val cropped = rawB64(params["cropB64"]?.firstOrNull())
+        val bytes = if (cropped.isNotBlank()) {
+            runCatching { android.util.Base64.decode(cropped, android.util.Base64.DEFAULT) }.getOrNull()
+        } else {
+            tmpPath?.let { runCatching { File(it).readBytes() }.getOrNull() }
+        }
 
         if (pasted.isBlank() && (bytes == null || bytes.isEmpty()) && locRaw.isBlank()) {
             return html(result("码（粘贴内容或照片）和位置至少填一样。", false))
@@ -177,6 +184,9 @@ class UploadServer(
         onChanged()
         return html(result("「${lot.name}」保存成功。$locMsg\n\n$msg", true))
     }
+
+    /** 取原始 base64 文本（不做 UTF-8 解码），供图片数据用 */
+    private fun rawB64(v: String?): String = v?.substringAfter("base64,").orEmpty()
 
     private fun decodeB64(v: String?): String {
         if (v.isNullOrBlank()) return ""
@@ -272,7 +282,15 @@ class UploadServer(
     placeholder="用微信「扫一扫」扫停车场物料码，复制打开的链接，粘到这里"></textarea>
   <input type="hidden" name="payloadB64" id="payloadB64">
   <label>方式二：或拍一张物料码照片</label>
-  <input type="file" name="photo" accept="image/*">
+  <input type="file" name="photo" id="photo" accept="image/*">
+  <div id="cropWrap" style="display:none;margin-top:10px">
+    <canvas id="cv" style="width:100%;border-radius:8px;background:#000;touch-action:none"></canvas>
+    <label style="margin-top:8px">裁剪框大小</label>
+    <input type="range" id="cropSize" min="18" max="100" value="72" style="width:100%">
+    <p class="hint" style="margin-top:4px">拖动方框对准码。<b>微信小程序码（圆形花瓣状）无法解码重绘，
+    只能存原图</b>，所以务必把码框满、框正，车机上才扫得出。</p>
+  </div>
+  <input type="hidden" name="cropB64" id="cropB64">
   <label>位置（可选）：粘高德/百度「分享」链接，或输 纬度,经度</label>
   <textarea id="locText" rows="2"
     placeholder="高德/百度 App 里对着停车场点「分享→复制链接」，粘到这里，坐标自动解析换算"></textarea>
@@ -327,15 +345,91 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('lotFilter').addEventListener('input', function() {
     renderOptions(this.value);
   });
+  document.getElementById('photo').addEventListener('change', function(){
+    if(this.files && this.files[0]) initCrop(this.files[0]);
+  });
+  document.getElementById('cropSize').addEventListener('input', function(){
+    _box.s = parseInt(this.value,10)/100; drawCrop();
+  });
+  bindCropDrag();
 });
 function b64(str){
   // 先转 UTF-8 字节再 base64，btoa 不能直接吃中文
   return str ? btoa(String.fromCharCode.apply(null, new TextEncoder().encode(str))) : '';
 }
+// ---- 裁剪：把码单独框出来 ----
+var _img = null, _box = {cx:0.5, cy:0.5, s:0.72}, _cv = null, _ctx = null;
+function drawCrop(){
+  if(!_img || !_cv) return;
+  var W = _cv.width, H = _cv.height;
+  _ctx.clearRect(0,0,W,H);
+  _ctx.drawImage(_img,0,0,W,H);
+  var side = Math.min(W,H)*_box.s;
+  var x = _box.cx*W - side/2, y = _box.cy*H - side/2;
+  x = Math.max(0, Math.min(W-side, x)); y = Math.max(0, Math.min(H-side, y));
+  _box.cx = (x+side/2)/W; _box.cy = (y+side/2)/H;
+  _ctx.fillStyle = 'rgba(0,0,0,.62)';
+  _ctx.fillRect(0,0,W,y); _ctx.fillRect(0,y+side,W,H-y-side);
+  _ctx.fillRect(0,y,x,side); _ctx.fillRect(x+side,y,W-x-side,side);
+  _ctx.strokeStyle = '#2f6fed'; _ctx.lineWidth = 3;
+  _ctx.strokeRect(x,y,side,side);
+}
+function initCrop(file){
+  var fr = new FileReader();
+  fr.onload = function(e){
+    var im = new Image();
+    im.onload = function(){
+      _img = im;
+      _cv = document.getElementById('cv');
+      var maxW = 900, r = Math.min(1, maxW/im.width);
+      _cv.width = Math.round(im.width*r); _cv.height = Math.round(im.height*r);
+      _ctx = _cv.getContext('2d');
+      document.getElementById('cropWrap').style.display = 'block';
+      _box = {cx:0.5, cy:0.5, s:parseInt(document.getElementById('cropSize').value,10)/100};
+      drawCrop();
+    };
+    im.src = e.target.result;
+  };
+  fr.readAsDataURL(file);
+}
+function bindCropDrag(){
+  var cv = document.getElementById('cv');
+  var dragging = false;
+  function pos(ev){
+    var r = cv.getBoundingClientRect();
+    var t = ev.touches ? ev.touches[0] : ev;
+    return {x:(t.clientX-r.left)/r.width, y:(t.clientY-r.top)/r.height};
+  }
+  function move(ev){
+    if(!dragging) return;
+    ev.preventDefault();
+    var p = pos(ev); _box.cx = p.x; _box.cy = p.y; drawCrop();
+  }
+  cv.addEventListener('mousedown', function(e){dragging=true; move(e);});
+  cv.addEventListener('touchstart', function(e){dragging=true; move(e);}, {passive:false});
+  window.addEventListener('mousemove', move);
+  window.addEventListener('touchmove', move, {passive:false});
+  window.addEventListener('mouseup', function(){dragging=false;});
+  window.addEventListener('touchend', function(){dragging=false;});
+}
+function cropToB64(){
+  if(!_img) return '';
+  var W=_cv.width, H=_cv.height, side=Math.min(W,H)*_box.s;
+  var x=_box.cx*W-side/2, y=_box.cy*H-side/2;
+  x=Math.max(0,Math.min(W-side,x)); y=Math.max(0,Math.min(H-side,y));
+  var sx=_img.width/W;
+  var out=document.createElement('canvas'); out.width=out.height=900;
+  var oc=out.getContext('2d');
+  oc.fillStyle='#fff'; oc.fillRect(0,0,900,900);
+  oc.drawImage(_img, x*sx, y*sx, side*sx, side*sx, 0,0,900,900);
+  return out.toDataURL('image/jpeg', 0.92);
+}
+
 function prep(){
   document.getElementById('newNameB64').value = b64(document.getElementById('newName').value);
   document.getElementById('payloadB64').value = b64(document.getElementById('payloadText').value.trim());
   document.getElementById('locB64').value = b64(document.getElementById('locText').value.trim());
+  document.getElementById('cropB64').value = cropToB64();
   return true;
 }
 </script>

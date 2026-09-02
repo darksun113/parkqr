@@ -124,6 +124,7 @@ class MainActivity : CoordActivity() {
         // App 此刻就在前台展示大码，没必要再压一层悬浮窗；等用户切去导航时再弹。
         overlayPendingOnLeave = BootLaunch.check(this)
         Keepalive.schedule(this)
+        BootJob.schedule(this)   // 持久化任务：重启后由系统恢复，绕开被屏蔽的开机广播
 
         UpdateChecker.check(this, manual = false)
 

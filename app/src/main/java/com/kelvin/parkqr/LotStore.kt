@@ -77,13 +77,51 @@ class LotStore private constructor(context: Context) {
         payload = null, imageFile = null, note = ""
     )
 
-    /** 存原图(小程序码等无法解码的情况)，返回文件名。 */
+    /**
+     * 存原图（微信小程序码这类无法解码的情况），返回文件名。
+     *
+     * 微信小程序码不是二维码，是私有的圆形码格式，解不出内容也就无法重绘，
+     * 只能原样保存。所以这里必须把图片处理好：拍歪拍暗的照片直接全屏显示
+     * 往往扫不出来，统一居中裁方、放大到 1000px、并拉一档对比度。
+     */
     fun writeImage(lotId: String, bytes: ByteArray): String {
         val name = "$lotId.png"
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val src = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             ?: throw IllegalArgumentException("不是有效的图片")
-        File(qrDir, name).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        File(qrDir, name).outputStream().use {
+            enhance(src).compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
         return name
+    }
+
+    /** 居中裁方 + 放大到 1000px + 提对比度，让原图在车机上足够清晰可扫。 */
+    private fun enhance(src: Bitmap): Bitmap {
+        val side = minOf(src.width, src.height)
+        val square = if (src.width == src.height) src else Bitmap.createBitmap(
+            src, (src.width - side) / 2, (src.height - side) / 2, side, side
+        )
+        val target = 1000
+        val scaled = if (square.width >= target) square
+        else Bitmap.createScaledBitmap(square, target, target, true)
+
+        val out = Bitmap.createBitmap(scaled.width, scaled.height, Bitmap.Config.ARGB_8888)
+        val c = 1.35f
+        val shift = -18f
+        val paint = android.graphics.Paint().apply {
+            colorFilter = android.graphics.ColorMatrixColorFilter(
+                android.graphics.ColorMatrix(
+                    floatArrayOf(
+                        c, 0f, 0f, 0f, shift,
+                        0f, c, 0f, 0f, shift,
+                        0f, 0f, c, 0f, shift,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+            )
+            isFilterBitmap = true
+        }
+        android.graphics.Canvas(out).drawBitmap(scaled, 0f, 0f, paint)
+        return out
     }
 
     fun deleteImage(name: String) {

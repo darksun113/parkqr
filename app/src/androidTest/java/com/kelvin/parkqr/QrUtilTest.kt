@@ -261,3 +261,58 @@ class PlateStyleTest {
         assertTrue(t.background == null)
     }
 }
+
+@RunWith(AndroidJUnit4::class)
+class NavWatcherTest {
+
+    private val ctx get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @org.junit.Before
+    fun clean() {
+        NavWatcher.setCustom(ctx, emptySet())
+        ctx.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
+            .edit().remove("navRecent").apply()
+    }
+
+    /** 内置的高德车机版包名必须命中 */
+    @Test
+    fun builtinNavPackagesMatch() {
+        assertTrue(NavWatcher.isNav(ctx, "com.autonavi.amapauto"))
+        assertTrue(NavWatcher.isNav(ctx, "com.autonavi.minimap"))
+        assertTrue(NavWatcher.isNav(ctx, "com.baidu.BaiduMap"))
+        assertTrue(!NavWatcher.isNav(ctx, "com.example.notnav"))
+        assertTrue(!NavWatcher.isNav(ctx, null))
+    }
+
+    /** 用户自选的应用也要能触发——各家车机导航包名不一定在内置表里 */
+    @Test
+    fun customTriggersWork() {
+        assertTrue(!NavWatcher.isNav(ctx, "com.some.oem.navi"))
+        NavWatcher.setCustom(ctx, setOf("com.some.oem.navi"))
+        assertTrue(NavWatcher.isNav(ctx, "com.some.oem.navi"))
+        // 内置的仍然有效
+        assertTrue(NavWatcher.isNav(ctx, "com.autonavi.amapauto"))
+    }
+
+    /** 系统组件和自身不该被记进"最近应用"候选 */
+    @Test
+    fun rememberFiltersSystemPackages() {
+        NavWatcher.remember(ctx, "com.android.systemui")
+        NavWatcher.remember(ctx, "com.android.settings")
+        NavWatcher.remember(ctx, "com.kelvin.parkqr")
+        NavWatcher.remember(ctx, "com.autonavi.amapauto")
+        val r = NavWatcher.recent(ctx)
+        assertTrue("不该含系统组件: $r", r.none { it.startsWith("com.android") })
+        assertTrue("不该含自己: $r", "com.kelvin.parkqr" !in r)
+        assertTrue("应记下导航: $r", "com.autonavi.amapauto" in r)
+    }
+
+    /** 开关默认开启，可切换 */
+    @Test
+    fun enableToggle() {
+        NavWatcher.setEnabled(ctx, false)
+        assertTrue(!NavWatcher.isEnabled(ctx))
+        NavWatcher.setEnabled(ctx, true)
+        assertTrue(NavWatcher.isEnabled(ctx))
+    }
+}

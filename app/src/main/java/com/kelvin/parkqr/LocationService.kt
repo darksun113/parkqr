@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 
 /**
  * 后台持续记录定位的前台服务。
@@ -22,6 +24,10 @@ import android.os.IBinder
 class LocationService : Service() {
 
     private var tracking: AutoCloseable? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var navPoll: Runnable? = null
+    /** 上一轮的前台包名，用来识别"刚切到导航"这个瞬间，避免反复弹 */
+    private var lastForeground: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -30,6 +36,39 @@ class LocationService : Service() {
         startForeground(NOTIF_ID, buildNotification())
         // 1 分钟一次、位移 20 米以上才回调，足够抓住"进地库前最后一点"又不费电
         tracking = Geo.startTracking(this, minTimeMs = 60_000L, minDistanceM = 20f)
+        startNavWatch()
+    }
+
+    /**
+     * 每 4 秒看一眼前台是谁。导航 App 刚切到前台的那一下就浮出停车码 ——
+     * 停好车回来发动、开导航准备走人时，正好需要缴费码。
+     */
+    private fun startNavWatch() {
+        navPoll = object : Runnable {
+            override fun run() {
+                runCatching {
+                    if (NavWatcher.isEnabled(this@LocationService) &&
+                        NavWatcher.hasPermission(this@LocationService)
+                    ) {
+                        val fg = NavWatcher.foregroundPackage(this@LocationService)
+                        if (fg != null && fg != lastForeground) {
+                            val was = lastForeground
+                            lastForeground = fg
+                            NavWatcher.remember(this@LocationService, fg)
+                            // 只在"从非触发应用切到触发应用"的那一刻弹
+                            if (NavWatcher.isNav(this@LocationService, fg) &&
+                                !NavWatcher.isNav(this@LocationService, was)
+                            ) {
+                                if (BootAction.run(this@LocationService, "检测到导航 App 启动")) {
+                                    OverlayService.start(this@LocationService)
+                                }
+                            }
+                        }
+                    }
+                }
+                handler.postDelayed(this, 4000L)
+            }
+        }.also { handler.postDelayed(it, 4000L) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -43,6 +82,8 @@ class LocationService : Service() {
     override fun onDestroy() {
         runCatching { tracking?.close() }
         tracking = null
+        navPoll?.let { handler.removeCallbacks(it) }
+        navPoll = null
         super.onDestroy()
     }
 

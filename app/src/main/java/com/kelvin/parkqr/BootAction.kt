@@ -17,6 +17,7 @@ object BootAction {
             .putLong("lastBootBroadcast", System.currentTimeMillis())
             .putString("lastBootAction", source)
             .apply()
+        BootJob.schedule(ctx)
 
         fun skip(why: String): Boolean {
             sp.edit().putString("lastBootResult", why).apply()

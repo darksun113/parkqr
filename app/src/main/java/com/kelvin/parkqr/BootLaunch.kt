@@ -13,12 +13,15 @@ import kotlin.math.abs
  */
 object BootLaunch {
 
-    private const val WINDOW_MS = 5 * 60_000L
+    /** App 被直接拉起时的判定窗口 */
+    const val WINDOW_MS = 5 * 60_000L
+    /** JobScheduler 周期最短 15 分钟，开机后可能过一会儿才跑到，窗口放宽 */
+    const val JOB_WINDOW_MS = 35 * 60_000L
 
     /** @return 本次是否判定为开机启动，且规则允许弹悬浮窗 */
-    fun check(ctx: Context): Boolean {
+    fun check(ctx: Context, windowMs: Long = WINDOW_MS): Boolean {
         val uptime = SystemClock.elapsedRealtime()
-        if (uptime > WINDOW_MS) return false
+        if (uptime > windowMs) return false
 
         val sp = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
         val bootAt = System.currentTimeMillis() - uptime      // 本次开机的墙钟时刻
